@@ -18,7 +18,7 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sufiyan Mansoori | Software & AI/ML Engineer",
+  title: "Sufiyan Shaikh | Software & AI/ML Engineer",
   description: "Computer Science Student | Aspiring AI/ML Engineer | Building Intelligent Software and Connected Systems",
 };
 
