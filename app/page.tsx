@@ -9,7 +9,7 @@ export default function Home() {
 
       <div className="z-10 flex flex-col items-center gap-8 max-w-4xl text-center">
         <h1 className="font-display text-5xl md:text-7xl font-bold tracking-tighter text-white">
-          SUFIYAN <span className="text-neon-cyan text-glow-cyan">MANSOORI</span>
+          SUFIYAN <span className="text-neon-cyan text-glow-cyan">SHAIKH</span>
         </h1>
         
         <p className="font-sans text-xl text-gray-400 max-w-2xl">
