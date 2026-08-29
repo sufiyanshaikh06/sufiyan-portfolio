@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "master" ]
 
 jobs:
   build-and-test:
@@ -33,5 +33,3 @@ jobs:
       
     - name: Build Next.js application
       run: npm run build
-      
-    # Add testing steps here once Vitest/Playwright are configured in later phases
