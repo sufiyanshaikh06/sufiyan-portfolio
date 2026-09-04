@@ -7,8 +7,7 @@ CREATE TYPE public.publication_state AS ENUM (
     'publication_queued',
     'deployment_building',
     'live',
-    'deployment_failed',
-    'archived'
+    'deployment_failed'
 );
 
 CREATE TYPE public.contact_state AS ENUM (
@@ -39,7 +38,17 @@ $$;
 REVOKE ALL ON FUNCTION public.is_aal2_admin() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.is_aal2_admin() TO authenticated;
 
--- 3. Profiles
+-- 3. Drafts Table (Strictly separated to prevent anonymous data leaks)
+CREATE TABLE public.drafts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    entity_type TEXT NOT NULL,
+    entity_id UUID NOT NULL,
+    draft_data JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(entity_type, entity_id)
+);
+
+-- 4. Profiles
 CREATE TABLE public.profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     full_name TEXT NOT NULL,
@@ -51,11 +60,10 @@ CREATE TABLE public.profiles (
     linkedin_url TEXT,
     email TEXT,
     is_published BOOLEAN DEFAULT false NOT NULL,
-    draft_data JSONB, -- Stores editable draft independently from published state
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 4. Projects
+-- 5. Projects
 CREATE TABLE public.projects (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     slug TEXT UNIQUE NOT NULL,
@@ -74,32 +82,32 @@ CREATE TABLE public.projects (
     display_order INTEGER DEFAULT 0 NOT NULL,
     state public.publication_state DEFAULT 'draft' NOT NULL,
     is_archived BOOLEAN DEFAULT false NOT NULL,
-    draft_data JSONB,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 5. Project Sections
+-- 6. Project Sections
 CREATE TABLE public.project_sections (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+    project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     content TEXT NOT NULL,
-    display_order INTEGER DEFAULT 0 NOT NULL,
-    draft_data JSONB
-);
-
--- 6. Skill Categories
-CREATE TABLE public.skill_categories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT UNIQUE NOT NULL,
     display_order INTEGER DEFAULT 0 NOT NULL
 );
 
--- 7. Skills
+-- 7. Skill Categories
+CREATE TABLE public.skill_categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT UNIQUE NOT NULL,
+    display_order INTEGER DEFAULT 0 NOT NULL,
+    is_published BOOLEAN DEFAULT false NOT NULL,
+    is_archived BOOLEAN DEFAULT false NOT NULL
+);
+
+-- 8. Skills
 CREATE TABLE public.skills (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    category_id UUID REFERENCES public.skill_categories(id) ON DELETE CASCADE,
+    category_id UUID NOT NULL REFERENCES public.skill_categories(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     proficiency_level TEXT NOT NULL,
     icon_identifier TEXT NOT NULL,
@@ -108,10 +116,10 @@ CREATE TABLE public.skills (
     display_order INTEGER DEFAULT 0 NOT NULL,
     is_published BOOLEAN DEFAULT false NOT NULL,
     is_archived BOOLEAN DEFAULT false NOT NULL,
-    draft_data JSONB
+    UNIQUE(category_id, name)
 );
 
--- 8. Education
+-- 9. Education
 CREATE TABLE public.education (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution TEXT NOT NULL,
@@ -121,11 +129,10 @@ CREATE TABLE public.education (
     end_date DATE,
     description TEXT,
     is_published BOOLEAN DEFAULT false NOT NULL,
-    is_archived BOOLEAN DEFAULT false NOT NULL,
-    draft_data JSONB
+    is_archived BOOLEAN DEFAULT false NOT NULL
 );
 
--- 9. Experiences
+-- 10. Experiences
 CREATE TABLE public.experiences (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     organization TEXT NOT NULL,
@@ -137,11 +144,10 @@ CREATE TABLE public.experiences (
     description_points TEXT[] NOT NULL,
     display_order INTEGER DEFAULT 0 NOT NULL,
     is_published BOOLEAN DEFAULT false NOT NULL,
-    is_archived BOOLEAN DEFAULT false NOT NULL,
-    draft_data JSONB
+    is_archived BOOLEAN DEFAULT false NOT NULL
 );
 
--- 10. Certifications
+-- 11. Certifications
 CREATE TABLE public.certifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
@@ -149,22 +155,20 @@ CREATE TABLE public.certifications (
     issue_date DATE,
     credential_url TEXT,
     is_published BOOLEAN DEFAULT false NOT NULL,
-    is_archived BOOLEAN DEFAULT false NOT NULL,
-    draft_data JSONB
+    is_archived BOOLEAN DEFAULT false NOT NULL
 );
 
--- 11. Achievements
+-- 12. Achievements
 CREATE TABLE public.achievements (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     title TEXT NOT NULL,
     date DATE,
     description TEXT,
     is_published BOOLEAN DEFAULT false NOT NULL,
-    is_archived BOOLEAN DEFAULT false NOT NULL,
-    draft_data JSONB
+    is_archived BOOLEAN DEFAULT false NOT NULL
 );
 
--- 12. Media Assets
+-- 13. Media Assets
 CREATE TABLE public.media_assets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     file_name TEXT NOT NULL,
@@ -175,15 +179,15 @@ CREATE TABLE public.media_assets (
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 13. Media References (ON DELETE RESTRICT block deletion of referenced media)
+-- 14. Media References
 CREATE TABLE public.media_references (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    asset_id UUID REFERENCES public.media_assets(id) ON DELETE RESTRICT,
+    asset_id UUID NOT NULL REFERENCES public.media_assets(id) ON DELETE RESTRICT,
     entity_type TEXT NOT NULL,
     entity_id UUID NOT NULL
 );
 
--- 14. Resume Versions
+-- 15. Resume Versions
 CREATE TABLE public.resume_versions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     version_label TEXT NOT NULL,
@@ -192,8 +196,9 @@ CREATE TABLE public.resume_versions (
     is_archived BOOLEAN DEFAULT false NOT NULL,
     uploaded_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+CREATE UNIQUE INDEX one_active_resume ON public.resume_versions (is_active) WHERE is_active = true AND is_archived = false;
 
--- 15. SEO Entries
+-- 16. SEO Entries
 CREATE TABLE public.seo_entries (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     route_path TEXT UNIQUE NOT NULL,
@@ -201,10 +206,11 @@ CREATE TABLE public.seo_entries (
     description TEXT NOT NULL,
     keywords TEXT[],
     og_image_url TEXT,
-    draft_data JSONB
+    is_published BOOLEAN DEFAULT false NOT NULL,
+    is_archived BOOLEAN DEFAULT false NOT NULL
 );
 
--- 16. Contact Messages
+-- 17. Contact Messages
 CREATE TABLE public.contact_messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     sender_name TEXT NOT NULL,
@@ -215,7 +221,7 @@ CREATE TABLE public.contact_messages (
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 17. Content Revisions
+-- 18. Content Revisions
 CREATE TABLE public.content_revisions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     entity_type TEXT NOT NULL,
@@ -224,7 +230,7 @@ CREATE TABLE public.content_revisions (
     changed_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 18. Publication Deployments
+-- 19. Publication Deployments
 CREATE TABLE public.publication_deployments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     deployment_status public.publication_state NOT NULL,
@@ -234,7 +240,7 @@ CREATE TABLE public.publication_deployments (
     completed_at TIMESTAMPTZ
 );
 
--- 19. Admin Activity
+-- 20. Admin Activity
 CREATE TABLE public.admin_activity (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     admin_id UUID REFERENCES public.admin_users(id),
@@ -249,8 +255,8 @@ CREATE TABLE public.admin_activity (
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -------------------------------------------------------------------------------
 
--- Enable RLS on all tables
 ALTER TABLE public.admin_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.drafts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_sections ENABLE ROW LEVEL SECURITY;
@@ -273,105 +279,100 @@ ALTER TABLE public.admin_activity ENABLE ROW LEVEL SECURITY;
 -- READ POLICIES
 -------------------------------------------------------------------------------
 
--- Public can read live/published content ONLY
 CREATE POLICY "Public can view published profiles" ON public.profiles FOR SELECT USING (is_published = true);
 CREATE POLICY "Public can view live projects" ON public.projects FOR SELECT USING (state = 'live' AND is_archived = false);
 CREATE POLICY "Public can view project sections for live projects" ON public.project_sections FOR SELECT USING (project_id IN (SELECT id FROM public.projects WHERE state = 'live' AND is_archived = false));
-CREATE POLICY "Public can view skill categories" ON public.skill_categories FOR SELECT USING (true);
+CREATE POLICY "Public can view published skill categories" ON public.skill_categories FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view published skills" ON public.skills FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view published education" ON public.education FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view published experiences" ON public.experiences FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view published certifications" ON public.certifications FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view published achievements" ON public.achievements FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view active resume" ON public.resume_versions FOR SELECT USING (is_active = true AND is_archived = false);
-CREATE POLICY "Public can view SEO entries" ON public.seo_entries FOR SELECT USING (true);
+CREATE POLICY "Public can view published SEO entries" ON public.seo_entries FOR SELECT USING (is_published = true AND is_archived = false);
 
 -- Admins can read everything
-CREATE POLICY "Admins can read everything in profiles" ON public.profiles FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in projects" ON public.projects FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in project_sections" ON public.project_sections FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in skill_categories" ON public.skill_categories FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in skills" ON public.skills FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in education" ON public.education FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in experiences" ON public.experiences FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in certifications" ON public.certifications FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in achievements" ON public.achievements FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in media_assets" ON public.media_assets FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in media_references" ON public.media_references FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in resume_versions" ON public.resume_versions FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read everything in seo_entries" ON public.seo_entries FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read contact messages" ON public.contact_messages FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read content revisions" ON public.content_revisions FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read publication deployments" ON public.publication_deployments FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can read admin activity" ON public.admin_activity FOR SELECT USING (public.is_aal2_admin());
 CREATE POLICY "Admins can read admin_users" ON public.admin_users FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read drafts" ON public.drafts FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read profiles" ON public.profiles FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read projects" ON public.projects FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read project_sections" ON public.project_sections FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read skill_categories" ON public.skill_categories FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read skills" ON public.skills FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read education" ON public.education FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read experiences" ON public.experiences FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read certifications" ON public.certifications FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read achievements" ON public.achievements FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read media_assets" ON public.media_assets FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read media_references" ON public.media_references FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read resume_versions" ON public.resume_versions FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read seo_entries" ON public.seo_entries FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read contact_messages" ON public.contact_messages FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read content_revisions" ON public.content_revisions FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read publication_deployments" ON public.publication_deployments FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read admin_activity" ON public.admin_activity FOR SELECT USING (public.is_aal2_admin());
 
 -------------------------------------------------------------------------------
 -- MUTATION POLICIES (INSERT/UPDATE/DELETE)
 -------------------------------------------------------------------------------
 
+CREATE POLICY "Admins can insert drafts" ON public.drafts FOR INSERT WITH CHECK (public.is_aal2_admin());
+CREATE POLICY "Admins can update drafts" ON public.drafts FOR UPDATE USING (public.is_aal2_admin());
+CREATE POLICY "Admins can delete drafts" ON public.drafts FOR DELETE USING (public.is_aal2_admin()); -- Drafts can be deleted
+
 CREATE POLICY "Admins can insert profiles" ON public.profiles FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update profiles" ON public.profiles FOR UPDATE USING (public.is_aal2_admin());
--- DELETE policy removed to enforce archive-first deletion
 
 CREATE POLICY "Admins can insert projects" ON public.projects FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update projects" ON public.projects FOR UPDATE USING (public.is_aal2_admin());
--- DELETE policy removed
 
 CREATE POLICY "Admins can insert project_sections" ON public.project_sections FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update project_sections" ON public.project_sections FOR UPDATE USING (public.is_aal2_admin());
--- DELETE policy removed
 
 CREATE POLICY "Admins can insert skill_categories" ON public.skill_categories FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update skill_categories" ON public.skill_categories FOR UPDATE USING (public.is_aal2_admin());
 
 CREATE POLICY "Admins can insert skills" ON public.skills FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update skills" ON public.skills FOR UPDATE USING (public.is_aal2_admin());
--- DELETE policy removed
 
 CREATE POLICY "Admins can insert education" ON public.education FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update education" ON public.education FOR UPDATE USING (public.is_aal2_admin());
--- DELETE policy removed
 
 CREATE POLICY "Admins can insert experiences" ON public.experiences FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update experiences" ON public.experiences FOR UPDATE USING (public.is_aal2_admin());
--- DELETE policy removed
 
 CREATE POLICY "Admins can insert certifications" ON public.certifications FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update certifications" ON public.certifications FOR UPDATE USING (public.is_aal2_admin());
--- DELETE policy removed
 
 CREATE POLICY "Admins can insert achievements" ON public.achievements FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update achievements" ON public.achievements FOR UPDATE USING (public.is_aal2_admin());
--- DELETE policy removed
 
 CREATE POLICY "Admins can insert media_assets" ON public.media_assets FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update media_assets" ON public.media_assets FOR UPDATE USING (public.is_aal2_admin());
--- DELETE policy removed
 
 CREATE POLICY "Admins can insert media_references" ON public.media_references FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update media_references" ON public.media_references FOR UPDATE USING (public.is_aal2_admin());
-CREATE POLICY "Admins can delete media_references" ON public.media_references FOR DELETE USING (public.is_aal2_admin());
+CREATE POLICY "Admins can delete media_references" ON public.media_references FOR DELETE USING (public.is_aal2_admin()); -- Relationship mappings can be deleted
 
 CREATE POLICY "Admins can insert resume_versions" ON public.resume_versions FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update resume_versions" ON public.resume_versions FOR UPDATE USING (public.is_aal2_admin());
--- DELETE policy removed
 
 CREATE POLICY "Admins can insert seo_entries" ON public.seo_entries FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update seo_entries" ON public.seo_entries FOR UPDATE USING (public.is_aal2_admin());
 
 CREATE POLICY "Admins can update contact_messages" ON public.contact_messages FOR UPDATE USING (public.is_aal2_admin());
--- INSERT strictly denied (server-side bypass only). DELETE denied.
+-- contact_messages: NO direct insert/delete
 
+-- Audit/Revision logs are append-only.
 CREATE POLICY "Admins can insert content_revisions" ON public.content_revisions FOR INSERT WITH CHECK (public.is_aal2_admin());
-CREATE POLICY "Admins can update content_revisions" ON public.content_revisions FOR UPDATE USING (public.is_aal2_admin());
+-- NO UPDATE/DELETE
 
 CREATE POLICY "Admins can insert publication_deployments" ON public.publication_deployments FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update publication_deployments" ON public.publication_deployments FOR UPDATE USING (public.is_aal2_admin());
+-- NO DELETE
 
 CREATE POLICY "Admins can insert admin_activity" ON public.admin_activity FOR INSERT WITH CHECK (public.is_aal2_admin());
-CREATE POLICY "Admins can update admin_activity" ON public.admin_activity FOR UPDATE USING (public.is_aal2_admin());
-
+-- NO UPDATE/DELETE
 
 -------------------------------------------------------------------------------
 -- STORAGE BUCKETS & RLS
@@ -383,14 +384,10 @@ INSERT INTO storage.buckets (id, name, public) VALUES
 ('resumes', 'resumes', true)
 ON CONFLICT (id) DO NOTHING;
 
--- Public can read from public_assets and resumes
 CREATE POLICY "Public can view public_assets" ON storage.objects FOR SELECT USING (bucket_id = 'public_assets');
 CREATE POLICY "Public can view resumes" ON storage.objects FOR SELECT USING (bucket_id = 'resumes');
-
--- Admins can read all buckets
 CREATE POLICY "Admins can read all storage" ON storage.objects FOR SELECT USING (public.is_aal2_admin());
 
--- Admins can insert/update/delete all buckets
 CREATE POLICY "Admins can insert storage" ON storage.objects FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update storage" ON storage.objects FOR UPDATE USING (public.is_aal2_admin());
-CREATE POLICY "Admins can delete storage" ON storage.objects FOR DELETE USING (public.is_aal2_admin());
+-- NO DELETE on storage.objects. Must be handled server-side to coordinate with media_references protection.
