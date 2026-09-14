@@ -9,7 +9,7 @@
 -- ==============================================================================
 
 BEGIN;
-SELECT plan(84);
+SELECT plan(103);
 
 -------------------------------------------------------------------------------
 -- 0. TEST FIXTURES SETUP
@@ -36,7 +36,9 @@ INSERT INTO public.media_assets (id, bucket_id, file_name, file_type, file_size,
 ('20000000-0000-0000-0000-000000000001', 'public_assets', 'm_pub.jpg', 'image/jpeg', 100, 'test/m_pub.jpg', 'Public Media', NULL, false, false),
 ('20000000-0000-0000-0000-000000000002', 'public_assets', 'm_arch.jpg', 'image/jpeg', 100, 'test/m_arch.jpg', 'Archived Media', NULL, false, true),
 ('20000000-0000-0000-0000-000000000003', 'private_assets', 'm_priv.jpg', 'image/jpeg', 100, 'test/m_priv.jpg', 'Private Media', NULL, false, false),
-('20000000-0000-0000-0000-000000000004', 'resumes', 'm_res.pdf', 'application/pdf', 100, 'test/m_res.pdf', 'Resume Media', NULL, false, false)
+('20000000-0000-0000-0000-000000000004', 'resumes', 'm_res.pdf', 'application/pdf', 100, 'test/m_res.pdf', 'Resume Media', NULL, false, false),
+('20000000-0000-0000-0000-000000000005', 'public_assets', 'm_cert.jpg', 'image/jpeg', 100, 'test/m_cert.jpg', 'Cert Media', NULL, false, false),
+('20000000-0000-0000-0000-000000000006', 'public_assets', 'm_ach.jpg', 'image/jpeg', 100, 'test/m_ach.jpg', 'Ach Media', NULL, false, false)
 ON CONFLICT (id) DO NOTHING;
 
 -- Storage Objects fixtures
@@ -98,14 +100,14 @@ INSERT INTO public.experiences (id, organization, role_title, type, start_date, 
 ON CONFLICT (id) DO NOTHING;
 
 -- Certifications & Achievements
-INSERT INTO public.certifications (id, name, issuing_organization, issue_date, is_published, is_archived) VALUES
-('20000000-0000-0000-0000-000000000060', 'Live Cert', 'Issuer', '2024-01-01', true, false),
-('20000000-0000-0000-0000-000000000061', 'Arch Cert', 'Issuer', '2024-01-01', true, true)
+INSERT INTO public.certifications (id, name, issuing_organization, issue_date, credential_url, certificate_asset_id, is_published, is_archived) VALUES
+('20000000-0000-0000-0000-000000000060', 'Live Cert', 'Issuer', '2024-01-01', 'https://example.com/cert', '20000000-0000-0000-0000-000000000005', true, false),
+('20000000-0000-0000-0000-000000000061', 'Arch Cert', 'Issuer', '2024-01-01', NULL, NULL, true, true)
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO public.achievements (id, title, description, is_published, is_archived) VALUES
-('20000000-0000-0000-0000-000000000065', 'Live Ach', 'Desc', true, false),
-('20000000-0000-0000-0000-000000000066', 'Arch Ach', 'Desc', true, true)
+INSERT INTO public.achievements (id, title, date, description, achievement_asset_id, is_published, is_archived) VALUES
+('20000000-0000-0000-0000-000000000065', 'Live Ach', '2024-01-01', 'Desc', '20000000-0000-0000-0000-000000000006', true, false),
+('20000000-0000-0000-0000-000000000066', 'Arch Ach', '2024-01-01', 'Desc', NULL, true, true)
 ON CONFLICT (id) DO NOTHING;
 
 -- SEO Entries
@@ -254,6 +256,30 @@ SELECT throws_ok(
     'AAL2: cannot insert an already-live project'
 );
 
+-- Parameterized validation of project creation workflow states
+SELECT throws_ok(
+    $$ INSERT INTO public.projects (slug, title, category, tier, description, technologies, state) VALUES ('p-state-pubq', 'T', 'Web', 'standard', 'D', ARRAY['A'], 'publication_queued') $$,
+    'Cannot insert record with non-draft state directly. Provided state: publication_queued',
+    'AAL2: cannot insert project with publication_queued state'
+);
+
+SELECT throws_ok(
+    $$ INSERT INTO public.projects (slug, title, category, tier, description, technologies, state) VALUES ('p-state-build', 'T', 'Web', 'standard', 'D', ARRAY['A'], 'deployment_building') $$,
+    'Cannot insert record with non-draft state directly. Provided state: deployment_building',
+    'AAL2: cannot insert project with deployment_building state'
+);
+
+SELECT throws_ok(
+    $$ INSERT INTO public.projects (slug, title, category, tier, description, technologies, state) VALUES ('p-state-fail', 'T', 'Web', 'standard', 'D', ARRAY['A'], 'deployment_failed') $$,
+    'Cannot insert record with non-draft state directly. Provided state: deployment_failed',
+    'AAL2: cannot insert project with deployment_failed state'
+);
+
+SELECT lives_ok(
+    $$ INSERT INTO public.projects (slug, title, category, tier, description, technologies, state) VALUES ('p-state-draft', 'T', 'Web', 'standard', 'D', ARRAY['A'], 'draft') $$,
+    'AAL2: can insert project with draft state'
+);
+
 SELECT throws_ok(
     $$ INSERT INTO public.profiles (full_name, professional_name, headline, bio, github_url, is_published) VALUES ('P', 'P', 'H', 'B', 'https://github.com/p', true) $$,
     'Cannot insert published record directly. Must use drafts.',
@@ -327,6 +353,65 @@ SELECT throws_ok(
 DELETE FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000001';
 SELECT is((SELECT count(*) FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000001'), 1::bigint, 'AAL2: delete on media_assets does not delete any row');
 
+-- Media Assets mutation protection
+SELECT throws_ok(
+    $$ INSERT INTO public.media_assets (bucket_id, file_name, file_type, file_size, storage_path) VALUES ('public_assets', 'hack.jpg', 'image/jpeg', 100, 'test/hack.jpg') $$,
+    'Cannot insert public media asset directly. Upload to staging buckets first.',
+    'AAL2: cannot directly insert into media_assets pointing to public_assets'
+);
+
+SELECT lives_ok(
+    $$ INSERT INTO public.media_assets (id, bucket_id, file_name, file_type, file_size, storage_path) VALUES ('20000000-0000-0000-0000-000000000007', 'private_assets', 'new_priv.jpg', 'image/jpeg', 100, 'test/new_priv.jpg') $$,
+    'AAL2: can insert private staging media asset'
+);
+
+SELECT throws_ok(
+    $$ UPDATE public.media_assets SET storage_path = 'hacked/path.jpg' WHERE id = '20000000-0000-0000-0000-000000000007' $$,
+    'Cannot modify storage location of media assets',
+    'AAL2: blocked from altering storage_path on media asset'
+);
+
+SELECT throws_ok(
+    $$ UPDATE public.media_assets SET bucket_id = 'public_assets' WHERE id = '20000000-0000-0000-0000-000000000007' $$,
+    'Cannot modify storage location of media assets',
+    'AAL2: blocked from altering bucket_id on media asset'
+);
+
+SELECT throws_ok(
+    $$ UPDATE public.media_assets SET alt_text = 'Hacked' WHERE id = '20000000-0000-0000-0000-000000000001' $$,
+    'Cannot directly update published media asset.',
+    'AAL2: blocked from updating published media asset'
+);
+
+SELECT throws_ok(
+    $$ UPDATE public.media_assets SET alt_text = 'Hacked' WHERE id = '20000000-0000-0000-0000-000000000005' $$,
+    'Cannot directly update published media asset.',
+    'AAL2: blocked from updating media asset referenced by certification'
+);
+
+SELECT lives_ok(
+    $$ UPDATE public.media_assets SET alt_text = 'Draft alt text' WHERE id = '20000000-0000-0000-0000-000000000007' $$,
+    'AAL2: can update alt_text on unreferenced private media asset'
+);
+
+-- Storage Objects policies
+SELECT throws_ok(
+    $$ INSERT INTO storage.objects (id, bucket_id, name, owner) VALUES ('30000000-0000-0000-0000-000000000010', 'public_assets', 'test/direct_pub.jpg', '00000000-0000-0000-0000-000000000001') $$,
+    'new row violates row-level security policy for table "objects"',
+    'AAL2: blocked from inserting directly into public_assets bucket'
+);
+
+SELECT lives_ok(
+    $$ INSERT INTO storage.objects (id, bucket_id, name, owner) VALUES ('30000000-0000-0000-0000-000000000011', 'private_assets', 'test/direct_priv.jpg', '00000000-0000-0000-0000-000000000001') $$,
+    'AAL2: can insert into private_assets staging bucket'
+);
+
+UPDATE storage.objects SET name = 'tampered.jpg' WHERE id = '30000000-0000-0000-0000-000000000011';
+SELECT is((SELECT name FROM storage.objects WHERE id = '30000000-0000-0000-0000-000000000011'), 'test/direct_priv.jpg', 'AAL2: update on private storage object did not persist (no update policy)');
+
+UPDATE storage.objects SET name = 'tampered.jpg' WHERE id = '30000000-0000-0000-0000-000000000001';
+SELECT is((SELECT name FROM storage.objects WHERE id = '30000000-0000-0000-0000-000000000001'), 'test/m_pub.jpg', 'AAL2: update on public storage object did not persist (no update policy)');
+
 -- Contact Message client field protection
 SELECT throws_ok(
     $$ UPDATE public.contact_messages SET sender_name = 'Hacked' WHERE id = '20000000-0000-0000-0000-000000000090' $$,
@@ -399,6 +484,22 @@ SELECT throws_ok(
     'Service Role: media deletion protection through foreign key constraint'
 );
 SELECT is((SELECT count(*) FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000001'), 1::bigint, 'Media asset remains intact after restricted delete attempt');
+
+SELECT throws_ok(
+    $$ DELETE FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000005' $$,
+    '23503',
+    'update or delete on table "media_assets" violates foreign key constraint "certifications_certificate_asset_id_fkey" on table "certifications"',
+    'Service Role: certificate media deletion restricted by foreign key'
+);
+SELECT is((SELECT count(*) FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000005'), 1::bigint, 'Certificate media asset remains intact');
+
+SELECT throws_ok(
+    $$ DELETE FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000006' $$,
+    '23503',
+    'update or delete on table "media_assets" violates foreign key constraint "achievements_achievement_asset_id_fkey" on table "achievements"',
+    'Service Role: achievement media deletion restricted by foreign key'
+);
+SELECT is((SELECT count(*) FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000006'), 1::bigint, 'Achievement media asset remains intact');
 
 -- Verify incomplete publishing RPC is absent in Phase 2
 SELECT throws_ok(

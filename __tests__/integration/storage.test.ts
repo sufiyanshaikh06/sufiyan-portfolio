@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
+import { seedStorage } from '../../scripts/seed-storage.mjs';
 
 const SUPABASE_URL = process.env.TEST_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54321';
 const SUPABASE_ANON_KEY = process.env.TEST_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
@@ -31,21 +32,60 @@ function createToken(sub: string, aal: string) {
   );
 }
 
-const serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  auth: {
+    storageKey: 'service-client-auth',
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
+});
+
+const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storageKey: 'anon-client-auth',
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
+});
+
 const nonOwnerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storageKey: 'non-owner-client-auth',
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
   global: { headers: { Authorization: `Bearer ${createToken(NON_OWNER_ID, 'aal1')}` } },
 });
+
 const aal1Client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storageKey: 'aal1-client-auth',
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
   global: { headers: { Authorization: `Bearer ${createToken(TEST_ADMIN_ID, 'aal1')}` } },
 });
+
 const aal2Client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storageKey: 'aal2-client-auth',
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
   global: { headers: { Authorization: `Bearer ${createToken(TEST_ADMIN_ID, 'aal2')}` } },
 });
 
 describe('Storage API Integration Tests', () => {
   beforeAll(async () => {
-    // Upload fixtures via service role; fail immediately on any error
+    // Seed physical files from fixtures into storage buckets
+    await seedStorage();
+
+    // Upload test fixtures via service role; fail immediately on any error
     const pubRes = await serviceClient.storage.from('public_assets').upload('fixture-pub.txt', 'public-fixture-data', { upsert: true });
     if (pubRes.error) throw new Error(`Failed to upload public fixture: ${pubRes.error.message}`);
 
@@ -57,8 +97,8 @@ describe('Storage API Integration Tests', () => {
   });
 
   afterAll(async () => {
-    // Clean up every fixture created during testing
-    await serviceClient.storage.from('public_assets').remove(['fixture-pub.txt']);
+    // Clean up test-specific fixtures created during testing
+    await serviceClient.storage.from('public_assets').remove(['fixture-pub.txt', 'aal2-pub.txt']);
     await serviceClient.storage.from('resumes').remove(['fixture-res.txt']);
     await serviceClient.storage.from('private_assets').remove(['fixture-priv.txt', 'aal2-upload.txt']);
   });
@@ -109,22 +149,33 @@ describe('Storage API Integration Tests', () => {
       expect(await rData!.text()).toBe('resume-fixture-data');
     });
 
-    it('can perform intended upload and read private_assets', async () => {
+    it('can upload a new file to private staging bucket (private_assets)', async () => {
       const { data: pData, error: pErr } = await aal2Client.storage.from('private_assets').download('fixture-priv.txt');
       expect(pErr).toBeNull();
       expect(pData).toBeDefined();
       expect(await pData!.text()).toBe('private-fixture-data');
 
-      const { data, error } = await aal2Client.storage.from('private_assets').upload('aal2-upload.txt', 'aal2-data', { upsert: true });
+      const { data, error } = await aal2Client.storage.from('private_assets').upload('aal2-upload.txt', 'aal2-data');
       expect(error).toBeNull();
       expect(data?.path).toBe('aal2-upload.txt');
     });
 
+    it('cannot upload directly to public_assets (promotion happens via server publishing)', async () => {
+      const { error } = await aal2Client.storage.from('public_assets').upload('aal2-pub.txt', 'malicious-data');
+      expect(error).toBeDefined();
+    });
+
+    it('cannot update or overwrite existing files in storage (server-only mutation)', async () => {
+      const { error: updateErr } = await aal2Client.storage.from('private_assets').update('fixture-priv.txt', 'hacked-content');
+      expect(updateErr).toBeDefined();
+
+      const { error: upsertErr } = await aal2Client.storage.from('private_assets').upload('fixture-priv.txt', 'overwrite-attempt', { upsert: true });
+      expect(upsertErr).toBeDefined();
+    });
+
     it('cannot delete through the Storage API (server-only deletion)', async () => {
-      // Attempt AAL2 client deletion of existing private fixture
       await aal2Client.storage.from('private_assets').remove(['fixture-priv.txt']);
 
-      // Verify the file still exists in storage via service role
       const { data: dlData, error: dlErr } = await serviceClient.storage.from('private_assets').download('fixture-priv.txt');
       expect(dlErr).toBeNull();
       expect(dlData).toBeDefined();
@@ -132,12 +183,60 @@ describe('Storage API Integration Tests', () => {
     });
   });
 
-  describe('Service Role', () => {
+  describe('Service Role & Database Integration', () => {
     it('can retrieve active résumé for static build', async () => {
       const { data: rData, error: rErr } = await serviceClient.storage.from('resumes').download('fixture-res.txt');
       expect(rErr).toBeNull();
       expect(rData).toBeDefined();
       expect(await rData!.text()).toBe('resume-fixture-data');
+    });
+
+    it('resolves active resume version to media asset and downloads valid PDF starting with %PDF-', async () => {
+      const { data: resumeVersion, error: resumeErr } = await serviceClient
+        .from('resume_versions')
+        .select('*, media_assets(*)')
+        .eq('is_active', true)
+        .eq('is_archived', false)
+        .single();
+
+      expect(resumeErr).toBeNull();
+      expect(resumeVersion).toBeDefined();
+      expect(resumeVersion?.media_assets).toBeDefined();
+
+      const asset = resumeVersion!.media_assets;
+      const { data: fileBlob, error: downloadErr } = await serviceClient
+        .storage
+        .from(asset.bucket_id)
+        .download(asset.storage_path);
+
+      expect(downloadErr).toBeNull();
+      expect(fileBlob).toBeDefined();
+
+      const buffer = await fileBlob!.arrayBuffer();
+      const header = new TextDecoder().decode(new Uint8Array(buffer).slice(0, 5));
+      expect(header).toBe('%PDF-');
+    });
+
+    it('ensures all non-archived seeded media assets exist and can be downloaded from storage', async () => {
+      const { data: assets, error } = await serviceClient
+        .from('media_assets')
+        .select('*')
+        .eq('is_archived', false);
+
+      expect(error).toBeNull();
+      expect(assets).toBeDefined();
+      expect(assets!.length).toBeGreaterThan(0);
+
+      for (const asset of assets!) {
+        const { data: blob, error: dlErr } = await serviceClient
+          .storage
+          .from(asset.bucket_id)
+          .download(asset.storage_path);
+
+        expect(dlErr).toBeNull();
+        expect(blob).toBeDefined();
+        expect(blob!.size).toBeGreaterThan(0);
+      }
     });
   });
 });

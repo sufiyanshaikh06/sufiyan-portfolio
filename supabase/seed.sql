@@ -60,7 +60,7 @@ ON CONFLICT (category_id, name) DO UPDATE SET proficiency_level = EXCLUDED.profi
 -- 7. Projects (Verified descriptions & categories)
 INSERT INTO public.projects (id, slug, title, subtitle, category, tier, description, technologies, state, is_archived, featured_asset_id) VALUES
 ('10000000-0000-0000-0000-000000000050', 'integrum', 'Integrum', 'Student Success Platform', 'Full-Stack', 'featured', 'A full-stack student-success platform integrating academic, productivity and career-management workflows, with AI-assisted capabilities planned as part of the approved architecture.', ARRAY['React', 'TypeScript', 'Tailwind CSS', 'Node.js', 'Express.js', 'PostgreSQL', 'Prisma'], 'live', false, '10000000-0000-0000-0000-000000000011'),
-('10000000-0000-0000-0000-000000000051', 'iot-temp-monitor', 'IoT Body Temperature Monitoring System', 'Embedded Health Monitoring Device', 'IoT/Embedded', 'featured', 'An ESP32-based body-temperature monitoring prototype using a waterproof DS18B20 digital sensor, an I2C LCD, status LEDs, buttons, a buzzer and ThingSpeak logging.', ARRAY['C++', 'ESP32', 'FreeRTOS', 'ThingSpeak'], 'live', false, '10000000-0000-0000-0000-000000000012')
+('10000000-0000-0000-0000-000000000051', 'iot-temp-monitor', 'IoT Body Temperature Monitoring System', 'Embedded Health Monitoring Device', 'IoT/Embedded', 'featured', 'An ESP32-based body-temperature monitoring prototype using a waterproof DS18B20 digital sensor, an I2C LCD, status LEDs, buttons, a buzzer and ThingSpeak logging.', ARRAY['C++', 'ESP32', 'Arduino Framework', 'ThingSpeak'], 'live', false, '10000000-0000-0000-0000-000000000012')
 ON CONFLICT (slug) DO UPDATE SET 
     title = EXCLUDED.title,
     subtitle = EXCLUDED.subtitle,

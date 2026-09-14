@@ -197,6 +197,7 @@ CREATE TABLE public.certifications (
     issuing_organization TEXT NOT NULL,
     issue_date DATE,
     credential_url TEXT,
+    certificate_asset_id UUID REFERENCES public.media_assets(id) ON DELETE RESTRICT,
     is_published BOOLEAN DEFAULT false NOT NULL,
     is_archived BOOLEAN DEFAULT false NOT NULL
 );
@@ -207,6 +208,7 @@ CREATE TABLE public.achievements (
     title TEXT NOT NULL,
     date DATE,
     description TEXT,
+    achievement_asset_id UUID REFERENCES public.media_assets(id) ON DELETE RESTRICT,
     is_published BOOLEAN DEFAULT false NOT NULL,
     is_archived BOOLEAN DEFAULT false NOT NULL
 );
@@ -283,43 +285,83 @@ CREATE TABLE public.admin_activity (
 CREATE OR REPLACE FUNCTION public.prevent_direct_live_mutation() RETURNS trigger AS $$
 BEGIN
     IF (public.is_aal2_admin()) THEN
-        -- ON INSERT: Reject if attempting to insert as live
+        -- ON INSERT: Reject if attempting to insert as live or non-draft
         IF (TG_OP = 'INSERT') THEN
-            IF row_to_json(NEW)->>'is_published' = 'true' THEN
+            IF to_jsonb(NEW)->>'is_published' = 'true' THEN
                 RAISE EXCEPTION 'Cannot insert published record directly. Must use drafts.';
             END IF;
-            IF row_to_json(NEW)->>'state' = 'live' THEN
+            IF to_jsonb(NEW)->>'state' = 'live' THEN
                 RAISE EXCEPTION 'Cannot insert live record directly. Must use drafts.';
             END IF;
-            IF row_to_json(NEW)->>'is_archived' = 'true' THEN
+            IF to_jsonb(NEW) ? 'state' AND (to_jsonb(NEW)->>'state' IS DISTINCT FROM 'draft') THEN
+                RAISE EXCEPTION 'Cannot insert record with non-draft state directly. Provided state: %', (to_jsonb(NEW)->>'state');
+            END IF;
+            IF to_jsonb(NEW)->>'is_archived' = 'true' THEN
                 RAISE EXCEPTION 'Cannot insert archived record directly.';
             END IF;
-            IF row_to_json(NEW)->>'is_active' = 'true' THEN
+            IF to_jsonb(NEW)->>'is_active' = 'true' THEN
                 RAISE EXCEPTION 'Cannot insert active record directly.';
+            END IF;
+            IF TG_TABLE_NAME = 'media_assets' THEN
+                IF to_jsonb(NEW)->>'bucket_id' = 'public_assets' THEN
+                    RAISE EXCEPTION 'Cannot insert public media asset directly. Upload to staging buckets first.';
+                END IF;
             END IF;
             RETURN NEW;
         END IF;
 
-        -- ON UPDATE: Reject if the OLD row is live (preventing modification of live content)
+        -- ON UPDATE: Reject if the OLD row is live or non-draft (preventing modification of live content)
         IF (TG_OP = 'UPDATE') THEN
-            IF row_to_json(OLD)->>'is_published' = 'true' THEN
+            IF to_jsonb(OLD)->>'is_published' = 'true' THEN
                 RAISE EXCEPTION 'Cannot directly update a published record. Must update drafts and publish atomically.';
             END IF;
-            IF row_to_json(OLD)->>'state' = 'live' THEN
+            IF to_jsonb(OLD)->>'state' = 'live' THEN
                 RAISE EXCEPTION 'Cannot directly update a live record. Must update drafts and publish atomically.';
             END IF;
-            IF row_to_json(OLD)->>'is_active' = 'true' THEN
+            IF to_jsonb(OLD) ? 'state' AND (to_jsonb(OLD)->>'state' IS DISTINCT FROM 'draft') THEN
+                RAISE EXCEPTION 'Cannot directly update a non-draft record. Must update drafts and publish atomically.';
+            END IF;
+            IF to_jsonb(OLD)->>'is_active' = 'true' THEN
                 RAISE EXCEPTION 'Cannot directly update an active record.';
+            END IF;
+            IF to_jsonb(OLD)->>'is_archived' = 'true' THEN
+                RAISE EXCEPTION 'Cannot directly update an archived record.';
             END IF;
             
             -- If it was a draft being updated to live via client (bypass attempt)
-            IF (row_to_json(NEW)->>'is_published' IS DISTINCT FROM row_to_json(OLD)->>'is_published') OR
-               (row_to_json(NEW)->>'state' IS DISTINCT FROM row_to_json(OLD)->>'state') OR
-               (row_to_json(NEW)->>'is_archived' IS DISTINCT FROM row_to_json(OLD)->>'is_archived') OR
-               (row_to_json(NEW)->>'is_active' IS DISTINCT FROM row_to_json(OLD)->>'is_active') THEN
+            IF (to_jsonb(NEW)->>'is_published' IS DISTINCT FROM to_jsonb(OLD)->>'is_published') OR
+               (to_jsonb(NEW)->>'state' IS DISTINCT FROM to_jsonb(OLD)->>'state') OR
+               (to_jsonb(NEW)->>'is_archived' IS DISTINCT FROM to_jsonb(OLD)->>'is_archived') OR
+               (to_jsonb(NEW)->>'is_active' IS DISTINCT FROM to_jsonb(OLD)->>'is_active') THEN
                 RAISE EXCEPTION 'State mutation (publish/archive) can only be modified via server-approved RPCs';
             END IF;
             
+            -- Table-specific protections for media_assets
+            IF TG_TABLE_NAME = 'media_assets' THEN
+                IF (to_jsonb(NEW)->>'bucket_id' IS DISTINCT FROM to_jsonb(OLD)->>'bucket_id') OR 
+                   (to_jsonb(NEW)->>'storage_path' IS DISTINCT FROM to_jsonb(OLD)->>'storage_path') THEN
+                    RAISE EXCEPTION 'Cannot modify storage location of media assets';
+                END IF;
+                IF to_jsonb(OLD)->>'bucket_id' = 'public_assets' THEN
+                    RAISE EXCEPTION 'Cannot directly update published media asset.';
+                END IF;
+                -- Check if media asset is referenced by live/published content
+                IF EXISTS (SELECT 1 FROM public.profiles WHERE avatar_asset_id = (to_jsonb(OLD)->>'id')::UUID AND is_published = true) OR
+                   EXISTS (SELECT 1 FROM public.projects WHERE featured_asset_id = (to_jsonb(OLD)->>'id')::UUID AND state = 'live' AND is_archived = false) OR
+                   EXISTS (
+                       SELECT 1 FROM public.project_section_media psm
+                       JOIN public.project_sections ps ON ps.id = psm.section_id
+                       JOIN public.projects p ON p.id = ps.project_id
+                       WHERE psm.media_asset_id = (to_jsonb(OLD)->>'id')::UUID AND p.state = 'live' AND p.is_archived = false
+                   ) OR
+                   EXISTS (SELECT 1 FROM public.resume_versions WHERE file_asset_id = (to_jsonb(OLD)->>'id')::UUID AND is_active = true AND is_archived = false) OR
+                   EXISTS (SELECT 1 FROM public.seo_entries WHERE og_image_asset_id = (to_jsonb(OLD)->>'id')::UUID AND is_published = true AND is_archived = false) OR
+                   EXISTS (SELECT 1 FROM public.certifications WHERE certificate_asset_id = (to_jsonb(OLD)->>'id')::UUID AND is_published = true AND is_archived = false) OR
+                   EXISTS (SELECT 1 FROM public.achievements WHERE achievement_asset_id = (to_jsonb(OLD)->>'id')::UUID AND is_published = true AND is_archived = false) THEN
+                    RAISE EXCEPTION 'Cannot directly update media asset referenced by live content.';
+                END IF;
+            END IF;
+
             RETURN NEW;
         END IF;
     END IF;
@@ -580,12 +622,21 @@ CREATE POLICY "Admins can update contact_messages" ON public.contact_messages FO
 -------------------------------------------------------------------------------
 -- STORAGE POLICIES
 -------------------------------------------------------------------------------
+-- Public can only view objects in public_assets bucket
 CREATE POLICY "Public can view public_assets" ON storage.objects FOR SELECT USING (bucket_id = 'public_assets');
+
+-- Admins can read all storage buckets
 CREATE POLICY "Admins can read all storage" ON storage.objects FOR SELECT USING (public.is_aal2_admin());
 
--- Notice: `storage.objects` has NO insert/update/delete RLS policies. It is entirely server-only.
-CREATE POLICY "Admins can insert storage" ON storage.objects FOR INSERT WITH CHECK (public.is_aal2_admin());
-CREATE POLICY "Admins can update storage" ON storage.objects FOR UPDATE USING (public.is_aal2_admin());
+-- Admins can only insert/upload new objects into private staging buckets ('private_assets', 'resumes')
+-- They cannot upload directly to 'public_assets' (promotion to public occurs via server publishing pipeline)
+CREATE POLICY "Admins can insert private storage" ON storage.objects FOR INSERT WITH CHECK (
+    public.is_aal2_admin() AND bucket_id IN ('private_assets', 'resumes')
+);
+
+-- Note: No UPDATE or DELETE policies are granted to clients on storage.objects.
+-- Overwriting existing files (upsert), updating file paths/metadata, moving, or deleting storage objects
+-- is strictly server-only to prevent tampering with live or published content.
 -------------------------------------------------------------------------------
 -- PUBLISHING PIPELINE SPECIFICATION (PHASE 6)
 -------------------------------------------------------------------------------

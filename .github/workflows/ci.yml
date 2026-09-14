@@ -25,6 +25,9 @@ jobs:
     - name: Start Supabase
       run: npx supabase start
       
+    - name: Seed Storage Fixtures
+      run: npm run seed:storage
+      
     - name: Run Database Tests (pgTAP)
       run: npx supabase test db
       
