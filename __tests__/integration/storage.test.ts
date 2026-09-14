@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 
@@ -36,11 +36,11 @@ describe('Storage API Integration Tests', () => {
 
   describe('Anonymous Users', () => {
     it('can read public_assets and resumes', async () => {
-      const { data: pData, error: pErr } = await anonClient.storage.from('public_assets').list();
+      const { error: pErr } = await anonClient.storage.from('public_assets').list();
       expect(pErr).toBeNull();
       // Should successfully list or at least not error with 401
       
-      const { data: rData, error: rErr } = await anonClient.storage.from('resumes').list();
+      const { error: rErr } = await anonClient.storage.from('resumes').list();
       expect(rErr).toBeNull();
     });
 
@@ -52,12 +52,12 @@ describe('Storage API Integration Tests', () => {
       expect(data).toHaveLength(0);
       
       // Try to download a private file
-      const { data: dlData, error: dlErr } = await anonClient.storage.from('private_assets').download('priv.jpg');
+      const { error: dlErr } = await anonClient.storage.from('private_assets').download('priv.jpg');
       expect(dlErr).toBeDefined();
     });
 
     it('cannot upload to public_assets', async () => {
-      const { data, error } = await anonClient.storage.from('public_assets').upload('anon-upload.txt', 'hello');
+      const { error } = await anonClient.storage.from('public_assets').upload('anon-upload.txt', 'hello');
       expect(error).toBeDefined();
       expect(error?.message).toMatch(/new row violates row-level security policy|Unauthorized/i);
     });
@@ -78,7 +78,7 @@ describe('Storage API Integration Tests', () => {
   describe('AAL2 Admin Users', () => {
     it('can perform intended upload and read private_assets', async () => {
       // Can read private
-      const { data: pData, error: pErr } = await aal2Client.storage.from('private_assets').list();
+      const { error: pErr } = await aal2Client.storage.from('private_assets').list();
       expect(pErr).toBeNull();
       
       // Upload successful
