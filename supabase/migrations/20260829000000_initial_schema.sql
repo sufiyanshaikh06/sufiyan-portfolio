@@ -44,7 +44,7 @@ GRANT EXECUTE ON FUNCTION public.is_aal2_admin() TO authenticated;
 INSERT INTO storage.buckets (id, name, public) VALUES 
 ('public_assets', 'public_assets', true),
 ('private_assets', 'private_assets', false),
-('resumes', 'resumes', true)
+('resumes', 'resumes', false)
 ON CONFLICT (id) DO NOTHING;
 
 
@@ -342,12 +342,26 @@ CREATE TRIGGER enforce_resume_mut BEFORE INSERT OR UPDATE ON public.resume_versi
 -- Project Sections protection (Requires parent project state check)
 CREATE OR REPLACE FUNCTION public.prevent_live_project_section_mutation() RETURNS trigger AS $$
 DECLARE
-    v_project_state TEXT;
+    v_old_project_state TEXT;
+    v_new_project_state TEXT;
 BEGIN
     IF (public.is_aal2_admin()) THEN
-        SELECT state INTO v_project_state FROM public.projects WHERE id = COALESCE(NEW.project_id, OLD.project_id);
-        IF v_project_state = 'live' THEN
-            RAISE EXCEPTION 'Cannot modify sections of a live project. Update drafts instead.';
+        IF TG_OP = 'INSERT' THEN
+            SELECT state INTO v_new_project_state FROM public.projects WHERE id = NEW.project_id;
+            IF v_new_project_state = 'live' THEN
+                RAISE EXCEPTION 'Cannot modify sections of a live project. Update drafts instead.';
+            END IF;
+        ELSIF TG_OP = 'DELETE' THEN
+            SELECT state INTO v_old_project_state FROM public.projects WHERE id = OLD.project_id;
+            IF v_old_project_state = 'live' THEN
+                RAISE EXCEPTION 'Cannot modify sections of a live project. Update drafts instead.';
+            END IF;
+        ELSIF TG_OP = 'UPDATE' THEN
+            SELECT state INTO v_old_project_state FROM public.projects WHERE id = OLD.project_id;
+            SELECT state INTO v_new_project_state FROM public.projects WHERE id = NEW.project_id;
+            IF v_old_project_state = 'live' OR v_new_project_state = 'live' THEN
+                RAISE EXCEPTION 'Cannot modify sections of a live project. Update drafts instead.';
+            END IF;
         END IF;
     END IF;
     RETURN COALESCE(NEW, OLD);
@@ -358,18 +372,42 @@ CREATE TRIGGER enforce_project_sections_mut BEFORE INSERT OR UPDATE OR DELETE ON
 -- Project Section Media protection (Requires parent project state check)
 CREATE OR REPLACE FUNCTION public.prevent_live_project_section_media_mutation() RETURNS trigger AS $$
 DECLARE
-    v_project_state TEXT;
-    v_sec_id UUID;
+    v_old_project_state TEXT;
+    v_new_project_state TEXT;
 BEGIN
     IF (public.is_aal2_admin()) THEN
-        v_sec_id := COALESCE(NEW.section_id, OLD.section_id);
-        SELECT p.state INTO v_project_state 
-        FROM public.project_sections ps 
-        JOIN public.projects p ON p.id = ps.project_id 
-        WHERE ps.id = v_sec_id;
+        IF TG_OP = 'INSERT' THEN
+            SELECT p.state INTO v_new_project_state 
+            FROM public.project_sections ps 
+            JOIN public.projects p ON p.id = ps.project_id 
+            WHERE ps.id = NEW.section_id;
 
-        IF v_project_state = 'live' THEN
-            RAISE EXCEPTION 'Cannot mutate section media of a live project directly. Must update drafts and publish atomically.';
+            IF v_new_project_state = 'live' THEN
+                RAISE EXCEPTION 'Cannot mutate section media of a live project directly. Must update drafts and publish atomically.';
+            END IF;
+        ELSIF TG_OP = 'DELETE' THEN
+            SELECT p.state INTO v_old_project_state 
+            FROM public.project_sections ps 
+            JOIN public.projects p ON p.id = ps.project_id 
+            WHERE ps.id = OLD.section_id;
+
+            IF v_old_project_state = 'live' THEN
+                RAISE EXCEPTION 'Cannot mutate section media of a live project directly. Must update drafts and publish atomically.';
+            END IF;
+        ELSIF TG_OP = 'UPDATE' THEN
+            SELECT p.state INTO v_old_project_state 
+            FROM public.project_sections ps 
+            JOIN public.projects p ON p.id = ps.project_id 
+            WHERE ps.id = OLD.section_id;
+
+            SELECT p.state INTO v_new_project_state 
+            FROM public.project_sections ps 
+            JOIN public.projects p ON p.id = ps.project_id 
+            WHERE ps.id = NEW.section_id;
+
+            IF v_old_project_state = 'live' OR v_new_project_state = 'live' THEN
+                RAISE EXCEPTION 'Cannot mutate section media of a live project directly. Must update drafts and publish atomically.';
+            END IF;
         END IF;
     END IF;
     RETURN COALESCE(NEW, OLD);
@@ -445,14 +483,23 @@ CREATE POLICY "Public can view project_section_media" ON public.project_section_
     )
 );
 CREATE POLICY "Public can view published skill categories" ON public.skill_categories FOR SELECT USING (is_published = true AND is_archived = false);
-CREATE POLICY "Public can view published skills" ON public.skills FOR SELECT USING (is_published = true AND is_archived = false);
+CREATE POLICY "Public can view published skills" ON public.skills FOR SELECT USING (
+    is_published = true 
+    AND is_archived = false 
+    AND EXISTS (
+        SELECT 1 FROM public.skill_categories sc 
+        WHERE sc.id = skills.category_id 
+          AND sc.is_published = true 
+          AND sc.is_archived = false
+    )
+);
 CREATE POLICY "Public can view published education" ON public.education FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view published experiences" ON public.experiences FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view published certifications" ON public.certifications FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view published achievements" ON public.achievements FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view active resume" ON public.resume_versions FOR SELECT USING (is_active = true AND is_archived = false);
 CREATE POLICY "Public can view published SEO entries" ON public.seo_entries FOR SELECT USING (is_published = true AND is_archived = false);
-CREATE POLICY "Public can view public media" ON public.media_assets FOR SELECT USING ((bucket_id = 'public_assets' OR bucket_id = 'resumes') AND is_archived = false);
+CREATE POLICY "Public can view public media" ON public.media_assets FOR SELECT USING (bucket_id = 'public_assets' AND is_archived = false);
 
 -- Admins can read everything
 CREATE POLICY "Admins can read admin_users" ON public.admin_users FOR SELECT USING (public.is_aal2_admin());
@@ -534,7 +581,6 @@ CREATE POLICY "Admins can update contact_messages" ON public.contact_messages FO
 -- STORAGE POLICIES
 -------------------------------------------------------------------------------
 CREATE POLICY "Public can view public_assets" ON storage.objects FOR SELECT USING (bucket_id = 'public_assets');
-CREATE POLICY "Public can view resumes" ON storage.objects FOR SELECT USING (bucket_id = 'resumes');
 CREATE POLICY "Admins can read all storage" ON storage.objects FOR SELECT USING (public.is_aal2_admin());
 
 -- Notice: `storage.objects` has NO insert/update/delete RLS policies. It is entirely server-only.

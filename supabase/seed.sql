@@ -13,12 +13,12 @@ INSERT INTO public.admin_users (id, email) VALUES
 ('00000000-0000-0000-0000-000000000001', 'dev-admin@example.com')
 ON CONFLICT (id) DO NOTHING;
 
--- 2. Storage Buckets
+-- 2. Storage Buckets (resumes is private for controlled publication)
 INSERT INTO storage.buckets (id, name, public) VALUES 
 ('public_assets', 'public_assets', true),
 ('private_assets', 'private_assets', false),
-('resumes', 'resumes', true)
-ON CONFLICT (id) DO NOTHING;
+('resumes', 'resumes', false)
+ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
 
 -- 3. Media Assets
 INSERT INTO public.media_assets (id, bucket_id, file_name, file_type, file_size, storage_path, alt_text, caption, is_decorative, width, height, is_archived) VALUES
@@ -53,14 +53,14 @@ INSERT INTO public.skills (id, category_id, name, proficiency_level, icon_identi
 ('10000000-0000-0000-0000-000000000040', '10000000-0000-0000-0000-000000000030', 'TypeScript', 'Working Knowledge', 'typescript', 10.0, 20.0, 1, true, false),
 ('10000000-0000-0000-0000-000000000041', '10000000-0000-0000-0000-000000000030', 'Python', 'Working Knowledge', 'python', 20.0, 20.0, 2, true, false),
 ('10000000-0000-0000-0000-000000000042', '10000000-0000-0000-0000-000000000030', 'C++', 'Working Knowledge', 'cpp', 30.0, 20.0, 3, true, false),
-('10000000-0000-0000-0000-000000000043', '10000000-0000-0000-0000-000000000031', 'Next.js', 'Working Knowledge', 'nextjs', 10.0, 40.0, 1, true, false),
-('10000000-0000-0000-0000-000000000044', '10000000-0000-0000-0000-000000000031', 'React', 'Working Knowledge', 'react', 20.0, 40.0, 2, true, false)
+('10000000-0000-0000-0000-000000000043', '10000000-0000-0000-0000-000000000031', 'React', 'Working Knowledge', 'react', 10.0, 40.0, 1, true, false),
+('10000000-0000-0000-0000-000000000044', '10000000-0000-0000-0000-000000000031', 'Node.js', 'Working Knowledge', 'nodejs', 20.0, 40.0, 2, true, false)
 ON CONFLICT (category_id, name) DO UPDATE SET proficiency_level = EXCLUDED.proficiency_level;
 
 -- 7. Projects (Verified descriptions & categories)
 INSERT INTO public.projects (id, slug, title, subtitle, category, tier, description, technologies, state, is_archived, featured_asset_id) VALUES
-('10000000-0000-0000-0000-000000000050', 'integrum', 'Integrum', 'AI-Powered Student Success Platform', 'Full-Stack', 'featured', 'An AI-powered student-success platform designed to enhance academic performance and learning outcomes.', ARRAY['TypeScript', 'Next.js', 'Python'], 'live', false, '10000000-0000-0000-0000-000000000011'),
-('10000000-0000-0000-0000-000000000051', 'iot-temp-monitor', 'IoT Body Temperature Monitoring System', 'Embedded Health Monitoring Device', 'IoT/Embedded', 'featured', 'A non-invasive body temperature monitoring system utilizing ESP32 and infrared sensing.', ARRAY['C++', 'ESP32'], 'live', false, '10000000-0000-0000-0000-000000000012')
+('10000000-0000-0000-0000-000000000050', 'integrum', 'Integrum', 'Student Success Platform', 'Full-Stack', 'featured', 'A full-stack student-success platform integrating academic, productivity and career-management workflows, with AI-assisted capabilities planned as part of the approved architecture.', ARRAY['React', 'TypeScript', 'Tailwind CSS', 'Node.js', 'Express.js', 'PostgreSQL', 'Prisma'], 'live', false, '10000000-0000-0000-0000-000000000011'),
+('10000000-0000-0000-0000-000000000051', 'iot-temp-monitor', 'IoT Body Temperature Monitoring System', 'Embedded Health Monitoring Device', 'IoT/Embedded', 'featured', 'An ESP32-based body-temperature monitoring prototype using a waterproof DS18B20 digital sensor, an I2C LCD, status LEDs, buttons, a buzzer and ThingSpeak logging.', ARRAY['C++', 'ESP32', 'FreeRTOS', 'ThingSpeak'], 'live', false, '10000000-0000-0000-0000-000000000012')
 ON CONFLICT (slug) DO UPDATE SET 
     title = EXCLUDED.title,
     subtitle = EXCLUDED.subtitle,
@@ -71,8 +71,8 @@ ON CONFLICT (slug) DO UPDATE SET
 
 -- 8. Project Sections
 INSERT INTO public.project_sections (id, project_id, title, content, display_order) VALUES
-('10000000-0000-0000-0000-000000000060', '10000000-0000-0000-0000-000000000050', 'Overview', 'Integrum combines academic telemetry with predictive intelligence to assist students in tracking and reaching graduation milestones.', 1),
-('10000000-0000-0000-0000-000000000061', '10000000-0000-0000-0000-000000000051', 'System Architecture', 'The system utilizes an ESP32 microcontroller paired with non-contact thermal sensors to safely monitor and report temperature readings in real time.', 1)
+('10000000-0000-0000-0000-000000000060', '10000000-0000-0000-0000-000000000050', 'Overview', 'Integrum brings together course tracking, task scheduling, and career-planning milestones into a unified full-stack web application.', 1),
+('10000000-0000-0000-0000-000000000061', '10000000-0000-0000-0000-000000000051', 'Hardware Architecture', 'The system utilizes an ESP32 microcontroller paired with a waterproof DS18B20 digital temperature sensor, I2C LCD, status LEDs, buzzer alerts, and ThingSpeak cloud telemetry for real-time logging.', 1)
 ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, content = EXCLUDED.content;
 
 -- 9. Project Section Media

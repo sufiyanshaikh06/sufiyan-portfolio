@@ -9,7 +9,7 @@
 -- ==============================================================================
 
 BEGIN;
-SELECT plan(73);
+SELECT plan(84);
 
 -------------------------------------------------------------------------------
 -- 0. TEST FIXTURES SETUP
@@ -24,12 +24,12 @@ INSERT INTO public.admin_users (id, email) VALUES
 ('00000000-0000-0000-0000-000000000001', 'dev-admin@example.com')
 ON CONFLICT (id) DO NOTHING;
 
--- Buckets (if not already seeded)
+-- Storage Buckets (resumes is private)
 INSERT INTO storage.buckets (id, name, public) VALUES 
 ('public_assets', 'public_assets', true),
 ('private_assets', 'private_assets', false),
-('resumes', 'resumes', true)
-ON CONFLICT (id) DO NOTHING;
+('resumes', 'resumes', false)
+ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
 
 -- Media Assets fixtures
 INSERT INTO public.media_assets (id, bucket_id, file_name, file_type, file_size, storage_path, alt_text, caption, is_decorative, is_archived) VALUES
@@ -75,12 +75,15 @@ ON CONFLICT (id) DO NOTHING;
 -- Skill Categories & Skills
 INSERT INTO public.skill_categories (id, name, display_order, is_published, is_archived) VALUES
 ('20000000-0000-0000-0000-000000000040', 'Live Cat', 1, true, false),
-('20000000-0000-0000-0000-000000000041', 'Arch Cat', 2, true, true)
+('20000000-0000-0000-0000-000000000041', 'Arch Cat', 2, true, true),
+('20000000-0000-0000-0000-000000000042', 'Unpub Cat', 3, false, false)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.skills (id, category_id, name, proficiency_level, icon_identifier, is_published, is_archived) VALUES
 ('20000000-0000-0000-0000-000000000045', '20000000-0000-0000-0000-000000000040', 'Live Skill', 'Working Knowledge', 'ts', true, false),
-('20000000-0000-0000-0000-000000000046', '20000000-0000-0000-0000-000000000040', 'Arch Skill', 'Working Knowledge', 'js', true, true)
+('20000000-0000-0000-0000-000000000046', '20000000-0000-0000-0000-000000000040', 'Arch Skill', 'Working Knowledge', 'js', true, true),
+('20000000-0000-0000-0000-000000000047', '20000000-0000-0000-0000-000000000042', 'Skill in Unpub Cat', 'Working Knowledge', 'py', true, false),
+('20000000-0000-0000-0000-000000000048', '20000000-0000-0000-0000-000000000041', 'Skill in Arch Cat', 'Working Knowledge', 'c', true, false)
 ON CONFLICT (id) DO NOTHING;
 
 -- Education & Experience
@@ -148,17 +151,21 @@ SELECT is((SELECT count(*) FROM public.project_section_media WHERE id = '2000000
 SELECT is((SELECT count(*) FROM public.project_section_media WHERE id = '20000000-0000-0000-0000-000000000036'), 0::bigint, 'Anon: cannot see section media with archived asset');
 SELECT is((SELECT count(*) FROM public.project_section_media WHERE id = '20000000-0000-0000-0000-000000000037'), 0::bigint, 'Anon: cannot see section media of draft project');
 
--- media_assets
+-- media_assets (resumes is private bucket, only public_assets is visible)
 SELECT is((SELECT count(*) FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000001'), 1::bigint, 'Anon: sees public active media');
 SELECT is((SELECT count(*) FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000002'), 0::bigint, 'Anon: cannot see archived media');
 SELECT is((SELECT count(*) FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000003'), 0::bigint, 'Anon: cannot see private media');
+SELECT is((SELECT count(*) FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000004'), 0::bigint, 'Anon: cannot see resume media asset (bucket is private)');
 
--- categories, skills, edu, exp, cert, ach, seo, resume
+-- categories, skills (including hidden categories verification)
 SELECT is((SELECT count(*) FROM public.skill_categories WHERE id = '20000000-0000-0000-0000-000000000040'), 1::bigint, 'Anon: sees live skill category');
 SELECT is((SELECT count(*) FROM public.skill_categories WHERE id = '20000000-0000-0000-0000-000000000041'), 0::bigint, 'Anon: cannot see archived skill category');
+SELECT is((SELECT count(*) FROM public.skill_categories WHERE id = '20000000-0000-0000-0000-000000000042'), 0::bigint, 'Anon: cannot see unpublished skill category');
 
-SELECT is((SELECT count(*) FROM public.skills WHERE id = '20000000-0000-0000-0000-000000000045'), 1::bigint, 'Anon: sees live skill');
+SELECT is((SELECT count(*) FROM public.skills WHERE id = '20000000-0000-0000-0000-000000000045'), 1::bigint, 'Anon: sees live skill under published category');
 SELECT is((SELECT count(*) FROM public.skills WHERE id = '20000000-0000-0000-0000-000000000046'), 0::bigint, 'Anon: cannot see archived skill');
+SELECT is((SELECT count(*) FROM public.skills WHERE id = '20000000-0000-0000-0000-000000000047'), 0::bigint, 'Anon: cannot see published skill under unpublished category');
+SELECT is((SELECT count(*) FROM public.skills WHERE id = '20000000-0000-0000-0000-000000000048'), 0::bigint, 'Anon: cannot see published skill under archived category');
 
 SELECT is((SELECT count(*) FROM public.education WHERE id = '20000000-0000-0000-0000-000000000050'), 1::bigint, 'Anon: sees live education');
 SELECT is((SELECT count(*) FROM public.education WHERE id = '20000000-0000-0000-0000-000000000051'), 0::bigint, 'Anon: cannot see archived education');
@@ -185,9 +192,10 @@ SELECT is((SELECT count(*) FROM public.contact_messages), 0::bigint, 'Anon: cann
 SELECT is((SELECT count(*) FROM public.admin_users), 0::bigint, 'Anon: cannot see admin users');
 SELECT is((SELECT count(*) FROM public.content_revisions), 0::bigint, 'Anon: cannot see content revisions');
 
--- Storage reads
+-- Storage reads (private resume bucket is completely hidden from anon)
 SELECT is((SELECT count(*) FROM storage.objects WHERE id = '30000000-0000-0000-0000-000000000001'), 1::bigint, 'Anon: sees public asset object');
 SELECT is((SELECT count(*) FROM storage.objects WHERE id = '30000000-0000-0000-0000-000000000002'), 0::bigint, 'Anon: cannot see private asset object');
+SELECT is((SELECT count(*) FROM storage.objects WHERE id = '30000000-0000-0000-0000-000000000003'), 0::bigint, 'Anon: cannot see private resume storage object');
 
 -- Blocked mutations (verify no row modified)
 UPDATE public.projects SET title = 'Hacked' WHERE id = '20000000-0000-0000-0000-000000000020';
@@ -237,6 +245,26 @@ SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000
 SELECT is((SELECT count(*) FROM public.drafts), 1::bigint, 'AAL2: can see drafts');
 SELECT is((SELECT count(*) FROM public.contact_messages), 1::bigint, 'AAL2: can see contact messages');
 SELECT is((SELECT count(*) FROM storage.objects WHERE id = '30000000-0000-0000-0000-000000000002'), 1::bigint, 'AAL2: can read private storage objects');
+SELECT is((SELECT count(*) FROM storage.objects WHERE id = '30000000-0000-0000-0000-000000000003'), 1::bigint, 'AAL2: can read resume storage objects');
+
+-- Boundary tests: Direct insertion of live/published/active records blocked
+SELECT throws_ok(
+    $$ INSERT INTO public.projects (slug, title, category, tier, description, technologies, state) VALUES ('p-live-insert', 'T', 'Web', 'standard', 'D', ARRAY['A'], 'live') $$,
+    'Cannot insert live record directly. Must use drafts.',
+    'AAL2: cannot insert an already-live project'
+);
+
+SELECT throws_ok(
+    $$ INSERT INTO public.profiles (full_name, professional_name, headline, bio, github_url, is_published) VALUES ('P', 'P', 'H', 'B', 'https://github.com/p', true) $$,
+    'Cannot insert published record directly. Must use drafts.',
+    'AAL2: cannot insert an already-published profile'
+);
+
+SELECT throws_ok(
+    $$ INSERT INTO public.resume_versions (version_label, file_asset_id, is_active) VALUES ('V2', '20000000-0000-0000-0000-000000000004', true) $$,
+    'Cannot insert active record directly.',
+    'AAL2: cannot directly insert an active resume'
+);
 
 -- Trigger protections: Direct mutation of live records blocked
 SELECT throws_ok(
@@ -256,6 +284,19 @@ SELECT throws_ok(
     $$ UPDATE public.project_sections SET title = 'Hacked' WHERE id = '20000000-0000-0000-0000-000000000030' $$,
     'Cannot modify sections of a live project. Update drafts instead.',
     'AAL2: blocked from modifying section of live project'
+);
+
+-- Old-parent transition bypass protections
+SELECT throws_ok(
+    $$ UPDATE public.project_sections SET project_id = '20000000-0000-0000-0000-000000000021' WHERE id = '20000000-0000-0000-0000-000000000030' $$,
+    'Cannot modify sections of a live project. Update drafts instead.',
+    'AAL2: blocked from moving section from live project to draft project'
+);
+
+SELECT throws_ok(
+    $$ UPDATE public.project_section_media SET section_id = '20000000-0000-0000-0000-000000000031' WHERE id = '20000000-0000-0000-0000-000000000035' $$,
+    'Cannot mutate section media of a live project directly. Must update drafts and publish atomically.',
+    'AAL2: blocked from moving section media from live section to draft section'
 );
 
 SELECT throws_ok(

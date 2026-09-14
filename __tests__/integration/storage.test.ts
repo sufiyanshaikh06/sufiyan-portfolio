@@ -64,16 +64,17 @@ describe('Storage API Integration Tests', () => {
   });
 
   describe('Anonymous Users', () => {
-    it('can read exactly the public and résumé fixtures', async () => {
+    it('can read exactly public assets fixture', async () => {
       const { data: pData, error: pErr } = await anonClient.storage.from('public_assets').download('fixture-pub.txt');
       expect(pErr).toBeNull();
       expect(pData).toBeDefined();
       expect(await pData!.text()).toBe('public-fixture-data');
+    });
 
+    it('cannot directly download résumé from private bucket', async () => {
       const { data: rData, error: rErr } = await anonClient.storage.from('resumes').download('fixture-res.txt');
-      expect(rErr).toBeNull();
-      expect(rData).toBeDefined();
-      expect(await rData!.text()).toBe('resume-fixture-data');
+      expect(rErr).toBeDefined();
+      expect(rData).toBeNull();
     });
 
     it('cannot download the existing private fixture', async () => {
@@ -101,6 +102,13 @@ describe('Storage API Integration Tests', () => {
   });
 
   describe('AAL2 Admin Users', () => {
+    it('can preview candidate résumé from private resumes bucket', async () => {
+      const { data: rData, error: rErr } = await aal2Client.storage.from('resumes').download('fixture-res.txt');
+      expect(rErr).toBeNull();
+      expect(rData).toBeDefined();
+      expect(await rData!.text()).toBe('resume-fixture-data');
+    });
+
     it('can perform intended upload and read private_assets', async () => {
       const { data: pData, error: pErr } = await aal2Client.storage.from('private_assets').download('fixture-priv.txt');
       expect(pErr).toBeNull();
@@ -121,6 +129,15 @@ describe('Storage API Integration Tests', () => {
       expect(dlErr).toBeNull();
       expect(dlData).toBeDefined();
       expect(await dlData!.text()).toBe('private-fixture-data');
+    });
+  });
+
+  describe('Service Role', () => {
+    it('can retrieve active résumé for static build', async () => {
+      const { data: rData, error: rErr } = await serviceClient.storage.from('resumes').download('fixture-res.txt');
+      expect(rErr).toBeNull();
+      expect(rData).toBeDefined();
+      expect(await rData!.text()).toBe('resume-fixture-data');
     });
   });
 });
