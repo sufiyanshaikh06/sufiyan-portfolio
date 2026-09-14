@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 import sharp from 'sharp';
+import { PDFDocument } from 'pdf-lib';
 import { seedStorage, assertLocalHostname } from '../../scripts/seed-storage.mjs';
 
 const SUPABASE_URL = process.env.TEST_SUPABASE_URL || 'http://127.0.0.1:54321';
@@ -233,7 +234,11 @@ describe('Storage API Integration Tests', () => {
       const text = buffer.toString('utf8');
       expect(text.startsWith('%PDF-')).toBe(true);
       expect(text.trim().endsWith('%%EOF')).toBe(true);
-      expect(text).toContain('Development Fixture Resume');
+
+      // Structural validation: Ensure PDF parses cleanly via pdf-lib and has exactly 1 page
+      const pdfDoc = await PDFDocument.load(buffer.toString('base64'));
+      expect(pdfDoc.getPageCount()).toBe(1);
+      expect(pdfDoc.getTitle()).toContain('Development Fixture Resume');
     });
 
     it('ensures all non-archived seeded media assets exist and strictly match database metadata', async () => {
@@ -281,6 +286,11 @@ describe('Storage API Integration Tests', () => {
           const text = buffer.toString('utf8');
           expect(text.startsWith('%PDF-')).toBe(true);
           expect(text.trim().endsWith('%%EOF')).toBe(true);
+
+          // 7. Structural validation: Ensure PDF parses cleanly via pdf-lib and has exactly 1 page
+          const pdfDoc = await PDFDocument.load(buffer.toString('base64'));
+          expect(pdfDoc.getPageCount()).toBe(1);
+          expect(pdfDoc.getTitle()).toContain('Development Fixture Resume');
         }
       }
     });

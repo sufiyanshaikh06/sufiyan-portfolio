@@ -25,7 +25,7 @@ INSERT INTO public.media_assets (id, bucket_id, file_name, file_type, file_size,
 ('10000000-0000-0000-0000-000000000010', 'public_assets', 'avatar.jpg', 'image/jpeg', 4019, 'portraits/avatar.jpg', 'Sufiyan Shaikh portrait', NULL, false, 800, 800, false),
 ('10000000-0000-0000-0000-000000000011', 'public_assets', 'integrum.jpg', 'image/jpeg', 12508, 'projects/integrum.jpg', 'Integrum Student Success Platform interface', NULL, false, 1920, 1080, false),
 ('10000000-0000-0000-0000-000000000012', 'public_assets', 'iot-temp-monitor.jpg', 'image/jpeg', 12509, 'projects/iot-temp-monitor.jpg', 'IoT Body Temperature Monitoring System prototype', NULL, false, 1920, 1080, false),
-('10000000-0000-0000-0000-000000000013', 'resumes', 'sufiyan_shaikh_resume.pdf', 'application/pdf', 661, 'docs/sufiyan_shaikh_resume.pdf', 'Development fixture resume PDF', NULL, false, NULL, NULL, false)
+('10000000-0000-0000-0000-000000000013', 'resumes', 'sufiyan_shaikh_resume.pdf', 'application/pdf', 1175, 'docs/sufiyan_shaikh_resume.pdf', 'Development fixture resume PDF', NULL, false, NULL, NULL, false)
 ON CONFLICT (bucket_id, storage_path) DO UPDATE SET 
     file_name = EXCLUDED.file_name,
     file_size = EXCLUDED.file_size,
