@@ -2,11 +2,27 @@ import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
 
-const SUPABASE_URL = process.env.TEST_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54321';
-const SERVICE_ROLE_KEY = process.env.TEST_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+export const DEFAULT_LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
+export const DEFAULT_LOCAL_SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
 
-export async function seedStorage() {
-  const serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+export function assertLocalHostname(targetUrl) {
+  const parsed = new URL(targetUrl);
+  if (parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost') {
+    throw new Error(
+      `Safety Guard: Refusing to seed storage fixtures against non-local host: ${parsed.hostname}. Storage seeding is strictly restricted to local environments (127.0.0.1 or localhost).`
+    );
+  }
+  return parsed;
+}
+
+export async function seedStorage(
+  targetUrl = process.env.TEST_SUPABASE_URL || DEFAULT_LOCAL_SUPABASE_URL,
+  targetKey = process.env.TEST_SUPABASE_SERVICE_ROLE_KEY || DEFAULT_LOCAL_SERVICE_ROLE_KEY
+) {
+  // Enforce local-only target URL BEFORE creating any client or initiating network requests
+  assertLocalHostname(targetUrl);
+
+  const serviceClient = createClient(targetUrl, targetKey, {
     auth: {
       storageKey: 'seed-storage-auth',
       persistSession: false,
@@ -61,7 +77,7 @@ if (process.argv[1] && import.meta.url.includes(path.basename(process.argv[1])))
       console.log('Seeded storage fixtures successfully');
     })
     .catch((err) => {
-      console.error(err);
+      console.error(err.message || err);
       process.exit(1);
     });
 }

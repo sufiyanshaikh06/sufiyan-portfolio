@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
-import { seedStorage } from '../../scripts/seed-storage.mjs';
+import sharp from 'sharp';
+import { seedStorage, assertLocalHostname } from '../../scripts/seed-storage.mjs';
 
-const SUPABASE_URL = process.env.TEST_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54321';
-const SUPABASE_ANON_KEY = process.env.TEST_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
-const SERVICE_ROLE_KEY = process.env.TEST_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
-const JWT_SECRET = process.env.TEST_SUPABASE_JWT_SECRET || process.env.SUPABASE_JWT_SECRET || 'super-secret-jwt-token-with-at-least-32-characters-long';
+const SUPABASE_URL = process.env.TEST_SUPABASE_URL || 'http://127.0.0.1:54321';
+const SUPABASE_ANON_KEY = process.env.TEST_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
+const SERVICE_ROLE_KEY = process.env.TEST_SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+const JWT_SECRET = process.env.TEST_SUPABASE_JWT_SECRET || 'super-secret-jwt-token-with-at-least-32-characters-long';
 
 // Safety Guard: Refuse to execute destructive integration tests against non-local environments
 const url = new URL(SUPABASE_URL);
@@ -78,6 +79,21 @@ const aal2Client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     detectSessionInUrl: false,
   },
   global: { headers: { Authorization: `Bearer ${createToken(TEST_ADMIN_ID, 'aal2')}` } },
+});
+
+describe('Storage Seeder Safety Guards', () => {
+  it('rejects remote URLs before creating clients or executing uploads', async () => {
+    await expect(seedStorage('https://xyz.supabase.co', 'test-key'))
+      .rejects.toThrow('Safety Guard: Refusing to seed storage fixtures against non-local host: xyz.supabase.co');
+
+    await expect(seedStorage('http://192.168.1.100:54321', 'test-key'))
+      .rejects.toThrow('Safety Guard: Refusing to seed storage fixtures against non-local host: 192.168.1.100');
+  });
+
+  it('permits localhost and 127.0.0.1 hostnames', () => {
+    expect(() => assertLocalHostname('http://127.0.0.1:54321')).not.toThrow();
+    expect(() => assertLocalHostname('http://localhost:54321')).not.toThrow();
+  });
 });
 
 describe('Storage API Integration Tests', () => {
@@ -191,7 +207,7 @@ describe('Storage API Integration Tests', () => {
       expect(await rData!.text()).toBe('resume-fixture-data');
     });
 
-    it('resolves active resume version to media asset and downloads valid PDF starting with %PDF-', async () => {
+    it('resolves active resume version to media asset and downloads valid PDF starting with %PDF- and ending with %%EOF', async () => {
       const { data: resumeVersion, error: resumeErr } = await serviceClient
         .from('resume_versions')
         .select('*, media_assets(*)')
@@ -202,6 +218,7 @@ describe('Storage API Integration Tests', () => {
       expect(resumeErr).toBeNull();
       expect(resumeVersion).toBeDefined();
       expect(resumeVersion?.media_assets).toBeDefined();
+      expect(resumeVersion?.version_label).toBe('Development Fixture Resume');
 
       const asset = resumeVersion!.media_assets;
       const { data: fileBlob, error: downloadErr } = await serviceClient
@@ -212,12 +229,14 @@ describe('Storage API Integration Tests', () => {
       expect(downloadErr).toBeNull();
       expect(fileBlob).toBeDefined();
 
-      const buffer = await fileBlob!.arrayBuffer();
-      const header = new TextDecoder().decode(new Uint8Array(buffer).slice(0, 5));
-      expect(header).toBe('%PDF-');
+      const buffer = Buffer.from(await fileBlob!.arrayBuffer());
+      const text = buffer.toString('utf8');
+      expect(text.startsWith('%PDF-')).toBe(true);
+      expect(text.trim().endsWith('%%EOF')).toBe(true);
+      expect(text).toContain('Development Fixture Resume');
     });
 
-    it('ensures all non-archived seeded media assets exist and can be downloaded from storage', async () => {
+    it('ensures all non-archived seeded media assets exist and strictly match database metadata', async () => {
       const { data: assets, error } = await serviceClient
         .from('media_assets')
         .select('*')
@@ -235,7 +254,34 @@ describe('Storage API Integration Tests', () => {
 
         expect(dlErr).toBeNull();
         expect(blob).toBeDefined();
-        expect(blob!.size).toBeGreaterThan(0);
+
+        const buffer = Buffer.from(await blob!.arrayBuffer());
+
+        // 1. Stored size equals media_assets.file_size
+        expect(buffer.length).toBe(asset.file_size);
+
+        // 2. MIME type matches file_type
+        expect(blob!.type).toBe(asset.file_type);
+
+        if (asset.file_type === 'image/jpeg') {
+          // 3. Every image has JPEG end marker
+          expect(buffer.slice(-2).toString('hex')).toBe('ffd9');
+
+          // 4. Decoded width and height equal database values
+          const metadata = await sharp(buffer).metadata();
+          expect(metadata.format).toBe('jpeg');
+          expect(metadata.width).toBe(asset.width);
+          expect(metadata.height).toBe(asset.height);
+
+          // 5. Every image can actually be decoded into raw pixels
+          const raw = await sharp(buffer).raw().toBuffer({ resolveWithObject: true });
+          expect(raw.data.length).toBe(asset.width! * asset.height! * 3);
+        } else if (asset.file_type === 'application/pdf') {
+          // 6. PDF has both %PDF- header and %%EOF terminator
+          const text = buffer.toString('utf8');
+          expect(text.startsWith('%PDF-')).toBe(true);
+          expect(text.trim().endsWith('%%EOF')).toBe(true);
+        }
       }
     });
   });

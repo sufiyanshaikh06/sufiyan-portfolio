@@ -22,12 +22,15 @@ ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
 
 -- 3. Media Assets
 INSERT INTO public.media_assets (id, bucket_id, file_name, file_type, file_size, storage_path, alt_text, caption, is_decorative, width, height, is_archived) VALUES
-('10000000-0000-0000-0000-000000000010', 'public_assets', 'avatar.jpg', 'image/jpeg', 10240, 'portraits/avatar.jpg', 'Sufiyan Shaikh portrait', NULL, false, 800, 800, false),
-('10000000-0000-0000-0000-000000000011', 'public_assets', 'integrum.jpg', 'image/jpeg', 20480, 'projects/integrum.jpg', 'Integrum Student Success Platform interface', NULL, false, 1920, 1080, false),
-('10000000-0000-0000-0000-000000000012', 'public_assets', 'iot-temp-monitor.jpg', 'image/jpeg', 20480, 'projects/iot-temp-monitor.jpg', 'IoT Body Temperature Monitoring System prototype', NULL, false, 1920, 1080, false),
-('10000000-0000-0000-0000-000000000013', 'resumes', 'sufiyan_shaikh_resume.pdf', 'application/pdf', 51200, 'docs/sufiyan_shaikh_resume.pdf', 'Sufiyan Shaikh Resume PDF', NULL, false, NULL, NULL, false)
+('10000000-0000-0000-0000-000000000010', 'public_assets', 'avatar.jpg', 'image/jpeg', 4019, 'portraits/avatar.jpg', 'Sufiyan Shaikh portrait', NULL, false, 800, 800, false),
+('10000000-0000-0000-0000-000000000011', 'public_assets', 'integrum.jpg', 'image/jpeg', 12508, 'projects/integrum.jpg', 'Integrum Student Success Platform interface', NULL, false, 1920, 1080, false),
+('10000000-0000-0000-0000-000000000012', 'public_assets', 'iot-temp-monitor.jpg', 'image/jpeg', 12509, 'projects/iot-temp-monitor.jpg', 'IoT Body Temperature Monitoring System prototype', NULL, false, 1920, 1080, false),
+('10000000-0000-0000-0000-000000000013', 'resumes', 'sufiyan_shaikh_resume.pdf', 'application/pdf', 661, 'docs/sufiyan_shaikh_resume.pdf', 'Development fixture resume PDF', NULL, false, NULL, NULL, false)
 ON CONFLICT (bucket_id, storage_path) DO UPDATE SET 
     file_name = EXCLUDED.file_name,
+    file_size = EXCLUDED.file_size,
+    width = EXCLUDED.width,
+    height = EXCLUDED.height,
     alt_text = EXCLUDED.alt_text;
 
 -- 4. Profile
@@ -88,5 +91,7 @@ ON CONFLICT (route_path) DO UPDATE SET title = EXCLUDED.title, description = EXC
 
 -- 11. Resume Versions
 INSERT INTO public.resume_versions (id, version_label, file_asset_id, is_active, is_archived) VALUES
-('10000000-0000-0000-0000-000000000080', 'Current Resume', '10000000-0000-0000-0000-000000000013', true, false)
-ON CONFLICT (id) DO UPDATE SET is_active = EXCLUDED.is_active;
+('10000000-0000-0000-0000-000000000080', 'Development Fixture Resume', '10000000-0000-0000-0000-000000000013', true, false)
+ON CONFLICT (id) DO UPDATE SET 
+    version_label = EXCLUDED.version_label,
+    is_active = EXCLUDED.is_active;

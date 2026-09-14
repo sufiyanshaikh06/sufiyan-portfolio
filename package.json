@@ -9,7 +9,8 @@
     "lint": "eslint --max-warnings=0",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "seed:storage": "node scripts/seed-storage.mjs"
+    "seed:storage": "node scripts/seed-storage.mjs",
+    "generate:fixtures": "node scripts/generate-fixtures.mjs"
   },
   "dependencies": {
     "next": "16.3.3",
@@ -31,6 +32,7 @@
     "eslint-config-next": "16.3.3",
     "jsdom": "^29.1.1",
     "jsonwebtoken": "^9.0.3",
+    "sharp": "^0.35.4",
     "supabase": "2.116.0",
     "tailwindcss": "^4",
     "typescript": "^5",
