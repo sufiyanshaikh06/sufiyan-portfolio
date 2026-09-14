@@ -82,7 +82,7 @@ describe('Storage API Integration Tests', () => {
       expect(pErr).toBeNull();
       
       // Upload successful
-      const { data, error } = await aal2Client.storage.from('private_assets').upload('aal2-upload.txt', 'test');
+      const { data, error } = await aal2Client.storage.from('private_assets').upload('aal2-upload.txt', 'test', { upsert: true });
       expect(error).toBeNull();
       expect(data?.path).toBe('aal2-upload.txt');
     });
