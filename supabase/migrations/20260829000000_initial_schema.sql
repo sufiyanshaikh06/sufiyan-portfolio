@@ -136,11 +136,6 @@ CREATE TABLE public.project_section_media (
     UNIQUE(section_id, media_asset_id)
 );
 ALTER TABLE public.project_section_media ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public can view project_section_media" ON public.project_section_media FOR SELECT USING (true);
-CREATE POLICY "Admins can read project_section_media" ON public.project_section_media FOR SELECT USING (public.is_aal2_admin());
-CREATE POLICY "Admins can insert project_section_media" ON public.project_section_media FOR INSERT WITH CHECK (public.is_aal2_admin());
-CREATE POLICY "Admins can update project_section_media" ON public.project_section_media FOR UPDATE USING (public.is_aal2_admin());
-CREATE POLICY "Admins can delete project_section_media" ON public.project_section_media FOR DELETE USING (public.is_aal2_admin());
 
 
 -- 8. Skill Categories
@@ -355,10 +350,32 @@ BEGIN
             RAISE EXCEPTION 'Cannot modify sections of a live project. Update drafts instead.';
         END IF;
     END IF;
-    RETURN NEW;
+    RETURN COALESCE(NEW, OLD);
 END;
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER enforce_project_sections_mut BEFORE INSERT OR UPDATE OR DELETE ON public.project_sections FOR EACH ROW EXECUTE FUNCTION public.prevent_live_project_section_mutation();
+
+-- Project Section Media protection (Requires parent project state check)
+CREATE OR REPLACE FUNCTION public.prevent_live_project_section_media_mutation() RETURNS trigger AS $$
+DECLARE
+    v_project_state TEXT;
+    v_sec_id UUID;
+BEGIN
+    IF (public.is_aal2_admin()) THEN
+        v_sec_id := COALESCE(NEW.section_id, OLD.section_id);
+        SELECT p.state INTO v_project_state 
+        FROM public.project_sections ps 
+        JOIN public.projects p ON p.id = ps.project_id 
+        WHERE ps.id = v_sec_id;
+
+        IF v_project_state = 'live' THEN
+            RAISE EXCEPTION 'Cannot mutate section media of a live project directly. Must update drafts and publish atomically.';
+        END IF;
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER enforce_project_section_media_mut BEFORE INSERT OR UPDATE OR DELETE ON public.project_section_media FOR EACH ROW EXECUTE FUNCTION public.prevent_live_project_section_media_mutation();
 
 -- Contact Messages (State only updates by clients)
 CREATE OR REPLACE FUNCTION public.restrict_contact_message_updates() RETURNS trigger AS $$
@@ -415,6 +432,18 @@ ALTER TABLE public.admin_activity ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public can view published profiles" ON public.profiles FOR SELECT USING (is_published = true);
 CREATE POLICY "Public can view live projects" ON public.projects FOR SELECT USING (state = 'live' AND is_archived = false);
 CREATE POLICY "Public can view project sections for live projects" ON public.project_sections FOR SELECT USING (project_id IN (SELECT id FROM public.projects WHERE state = 'live' AND is_archived = false));
+CREATE POLICY "Public can view project_section_media" ON public.project_section_media FOR SELECT USING (
+    EXISTS (
+        SELECT 1 FROM public.project_sections ps
+        JOIN public.projects p ON p.id = ps.project_id
+        JOIN public.media_assets ma ON ma.id = project_section_media.media_asset_id
+        WHERE ps.id = project_section_media.section_id
+          AND p.state = 'live'
+          AND p.is_archived = false
+          AND ma.bucket_id = 'public_assets'
+          AND ma.is_archived = false
+    )
+);
 CREATE POLICY "Public can view published skill categories" ON public.skill_categories FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view published skills" ON public.skills FOR SELECT USING (is_published = true AND is_archived = false);
 CREATE POLICY "Public can view published education" ON public.education FOR SELECT USING (is_published = true AND is_archived = false);
@@ -431,6 +460,7 @@ CREATE POLICY "Admins can read drafts" ON public.drafts FOR SELECT USING (public
 CREATE POLICY "Admins can read profiles" ON public.profiles FOR SELECT USING (public.is_aal2_admin());
 CREATE POLICY "Admins can read projects" ON public.projects FOR SELECT USING (public.is_aal2_admin());
 CREATE POLICY "Admins can read project_sections" ON public.project_sections FOR SELECT USING (public.is_aal2_admin());
+CREATE POLICY "Admins can read project_section_media" ON public.project_section_media FOR SELECT USING (public.is_aal2_admin());
 CREATE POLICY "Admins can read skill_categories" ON public.skill_categories FOR SELECT USING (public.is_aal2_admin());
 CREATE POLICY "Admins can read skills" ON public.skills FOR SELECT USING (public.is_aal2_admin());
 CREATE POLICY "Admins can read education" ON public.education FOR SELECT USING (public.is_aal2_admin());
@@ -463,6 +493,10 @@ CREATE POLICY "Admins can update projects" ON public.projects FOR UPDATE USING (
 CREATE POLICY "Admins can insert project_sections" ON public.project_sections FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update project_sections" ON public.project_sections FOR UPDATE USING (public.is_aal2_admin());
 CREATE POLICY "Admins can delete project_sections" ON public.project_sections FOR DELETE USING (public.is_aal2_admin());
+
+CREATE POLICY "Admins can insert project_section_media" ON public.project_section_media FOR INSERT WITH CHECK (public.is_aal2_admin());
+CREATE POLICY "Admins can update project_section_media" ON public.project_section_media FOR UPDATE USING (public.is_aal2_admin());
+CREATE POLICY "Admins can delete project_section_media" ON public.project_section_media FOR DELETE USING (public.is_aal2_admin());
 
 CREATE POLICY "Admins can insert skill_categories" ON public.skill_categories FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update skill_categories" ON public.skill_categories FOR UPDATE USING (public.is_aal2_admin());
@@ -506,149 +540,18 @@ CREATE POLICY "Admins can read all storage" ON storage.objects FOR SELECT USING 
 -- Notice: `storage.objects` has NO insert/update/delete RLS policies. It is entirely server-only.
 CREATE POLICY "Admins can insert storage" ON storage.objects FOR INSERT WITH CHECK (public.is_aal2_admin());
 CREATE POLICY "Admins can update storage" ON storage.objects FOR UPDATE USING (public.is_aal2_admin());
--- typed functions for publishing drafts
+-------------------------------------------------------------------------------
+-- PUBLISHING PIPELINE SPECIFICATION (PHASE 6)
+-------------------------------------------------------------------------------
+-- Direct client-side mutation of live records is strictly blocked across all
+-- identities by RLS policies and database trigger guards (prevent_direct_live_mutation,
+-- prevent_live_project_section_mutation, prevent_live_project_section_media_mutation).
+-- Content authoring occurs strictly in public.drafts.
+--
+-- The end-to-end transactional publishing pipeline—including immutable candidate release
+-- snapshots, validation of cross-entity relations & media accessibility, atomic promotion
+-- of candidate snapshots to live state, deployment queueing, and rollback on deployment
+-- failures—is an approved Phase 6 deliverable. No partial or unvalidated publishing RPCs
+-- are exposed in Phase 2.
 
-CREATE OR REPLACE FUNCTION public.publish_profile_draft(p_entity_id UUID) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE
-    v_draft JSONB;
-    v_live_record public.profiles;
-    v_new_record public.profiles;
-    v_media_count INT;
-BEGIN
-    -- 1. Lock the draft and live record
-    SELECT draft_data INTO v_draft FROM public.drafts WHERE entity_type = 'profiles' AND entity_id = p_entity_id FOR UPDATE;
-    IF v_draft IS NULL THEN
-        RAISE EXCEPTION 'Draft not found for profiles %', p_entity_id;
-    END IF;
-
-    SELECT * INTO v_live_record FROM public.profiles WHERE id = p_entity_id FOR UPDATE;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Live record not found for profiles %', p_entity_id;
-    END IF;
-
-    -- 2. Populate new record
-    v_new_record := jsonb_populate_record(v_live_record, v_draft);
-    v_new_record.is_published := true;
-
-    -- 3. Validation
-    IF v_new_record.full_name IS NULL OR v_new_record.full_name = '' THEN
-        RAISE EXCEPTION 'Validation failed: full_name is required';
-    END IF;
-
-    IF v_new_record.avatar_asset_id IS NOT NULL THEN
-        SELECT count(*) INTO v_media_count FROM public.media_assets 
-        WHERE id = v_new_record.avatar_asset_id AND is_archived = false 
-        AND (is_decorative = true OR (alt_text IS NOT NULL AND alt_text != ''));
-        IF v_media_count = 0 THEN
-            RAISE EXCEPTION 'Validation failed: Invalid avatar media asset (must exist, not be archived, and have alt text if not decorative)';
-        END IF;
-    END IF;
-
-    -- 4. Audit Snapshot
-    INSERT INTO public.content_revisions (entity_type, entity_id, previous_data) VALUES ('profiles', p_entity_id, to_jsonb(v_live_record));
-
-    -- 5. Atomically Apply
-    UPDATE public.profiles SET 
-        full_name = v_new_record.full_name,
-        professional_name = v_new_record.professional_name,
-        headline = v_new_record.headline,
-        bio = v_new_record.bio,
-        github_url = v_new_record.github_url,
-        linkedin_url = v_new_record.linkedin_url,
-        email = v_new_record.email,
-        is_published = true,
-        avatar_asset_id = v_new_record.avatar_asset_id
-    WHERE id = p_entity_id;
-
-    -- 6. Queue deployment & audit
-    INSERT INTO public.publication_deployments (deployment_status) VALUES ('publication_queued');
-    INSERT INTO public.admin_activity (action, entity_type, entity_id) VALUES ('publish_draft', 'profiles', p_entity_id);
-
-    -- 7. Clear draft
-    DELETE FROM public.drafts WHERE entity_type = 'profiles' AND entity_id = p_entity_id;
-END;
-$$;
-REVOKE ALL ON FUNCTION public.publish_profile_draft(UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.publish_profile_draft(UUID) TO service_role;
-
-
-CREATE OR REPLACE FUNCTION public.publish_project_draft(p_entity_id UUID) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE
-    v_draft JSONB;
-    v_live_record public.projects;
-    v_new_record public.projects;
-    v_slug_count INT;
-    v_media_count INT;
-BEGIN
-    SELECT draft_data INTO v_draft FROM public.drafts WHERE entity_type = 'projects' AND entity_id = p_entity_id FOR UPDATE;
-    IF v_draft IS NULL THEN
-        RAISE EXCEPTION 'Draft not found for projects %', p_entity_id;
-    END IF;
-
-    SELECT * INTO v_live_record FROM public.projects WHERE id = p_entity_id FOR UPDATE;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Live record not found for projects %', p_entity_id;
-    END IF;
-
-    v_new_record := jsonb_populate_record(v_live_record, v_draft);
-    v_new_record.state := 'live';
-
-    -- Validation
-    IF v_new_record.title IS NULL OR v_new_record.title = '' THEN
-        RAISE EXCEPTION 'Validation failed: title is required';
-    END IF;
-
-    SELECT count(*) INTO v_slug_count FROM public.projects WHERE slug = v_new_record.slug AND id != p_entity_id;
-    IF v_slug_count > 0 THEN
-        RAISE EXCEPTION 'Validation failed: slug must be unique';
-    END IF;
-
-    IF v_new_record.featured_asset_id IS NOT NULL THEN
-        SELECT count(*) INTO v_media_count FROM public.media_assets 
-        WHERE id = v_new_record.featured_asset_id AND is_archived = false 
-        AND (is_decorative = true OR (alt_text IS NOT NULL AND alt_text != ''));
-        IF v_media_count = 0 THEN
-            RAISE EXCEPTION 'Validation failed: Invalid featured media asset (must exist, not be archived, and have alt text if not decorative)';
-        END IF;
-    END IF;
-
-    INSERT INTO public.content_revisions (entity_type, entity_id, previous_data) VALUES ('projects', p_entity_id, to_jsonb(v_live_record));
-
-    UPDATE public.projects SET 
-        slug = v_new_record.slug,
-        title = v_new_record.title,
-        subtitle = v_new_record.subtitle,
-        category = v_new_record.category,
-        tier = v_new_record.tier,
-        description = v_new_record.description,
-        technologies = v_new_record.technologies,
-        state = 'live',
-        featured_asset_id = v_new_record.featured_asset_id
-    WHERE id = p_entity_id;
-
-    INSERT INTO public.publication_deployments (deployment_status) VALUES ('publication_queued');
-    INSERT INTO public.admin_activity (action, entity_type, entity_id) VALUES ('publish_draft', 'projects', p_entity_id);
-    DELETE FROM public.drafts WHERE entity_type = 'projects' AND entity_id = p_entity_id;
-END;
-$$;
-REVOKE ALL ON FUNCTION public.publish_project_draft(UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.publish_project_draft(UUID) TO service_role;
-
-
-CREATE OR REPLACE FUNCTION public.publish_draft(p_entity_type TEXT, p_entity_id UUID) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-    IF p_entity_type = 'profiles' THEN
-        PERFORM public.publish_profile_draft(p_entity_id);
-    ELSIF p_entity_type = 'projects' THEN
-        PERFORM public.publish_project_draft(p_entity_id);
-    ELSE
-        RAISE EXCEPTION 'Unsupported entity type for publication: %', p_entity_type;
-    END IF;
-END;
-$$;
-REVOKE ALL ON FUNCTION public.publish_draft(TEXT, UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.publish_draft(TEXT, UUID) TO service_role;
 
