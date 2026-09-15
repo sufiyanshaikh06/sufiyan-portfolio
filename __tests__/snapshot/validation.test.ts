@@ -230,4 +230,46 @@ describe('Zod Snapshot Runtime Schemas Validation', () => {
       expect(json).not.toContain('storage_path');
     });
   });
+
+  describe('Snapshot Script Vercel & Production Environment Guards', () => {
+    it('fails with clear error when VERCEL=1 is set without credentials', async () => {
+      const { execSync } = await import('node:child_process');
+      let capturedError = '';
+      try {
+        execSync('node scripts/snapshot-public.mjs', {
+          env: {
+            ...process.env,
+            VERCEL: '1',
+            SUPABASE_URL: '',
+            NEXT_PUBLIC_SUPABASE_URL: '',
+            SUPABASE_PUBLISHABLE_KEY: '',
+            NEXT_PUBLIC_SUPABASE_ANON_KEY: '',
+          },
+          stdio: 'pipe',
+        });
+      } catch (err: unknown) {
+        capturedError = String((err as { stderr?: Buffer; stdout?: Buffer }).stderr || err);
+      }
+      expect(capturedError).toContain('Vercel / Production Deployment Error: Missing Supabase credentials');
+    });
+
+    it('fails with clear error when VERCEL=1 targets localhost', async () => {
+      const { execSync } = await import('node:child_process');
+      let capturedError = '';
+      try {
+        execSync('node scripts/snapshot-public.mjs', {
+          env: {
+            ...process.env,
+            VERCEL: '1',
+            SUPABASE_URL: 'http://127.0.0.1:54321',
+            SUPABASE_PUBLISHABLE_KEY: 'some-key',
+          },
+          stdio: 'pipe',
+        });
+      } catch (err: unknown) {
+        capturedError = String((err as { stderr?: Buffer; stdout?: Buffer }).stderr || err);
+      }
+      expect(capturedError).toContain('Invalid Supabase URL on Vercel');
+    });
+  });
 });

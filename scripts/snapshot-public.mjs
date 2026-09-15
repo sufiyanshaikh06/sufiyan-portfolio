@@ -22,15 +22,56 @@ const DEFAULT_LOCAL_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ
 async function run() {
   console.log('--- Starting Phase 3 Public Snapshot ---');
 
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.TEST_SUPABASE_URL || DEFAULT_LOCAL_URL;
-  const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.TEST_SUPABASE_ANON_KEY || DEFAULT_LOCAL_PUBLISHABLE_KEY || DEFAULT_LOCAL_ANON_KEY;
+  const isVercel = Boolean(process.env.VERCEL);
+  const isCi = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // In Vercel or non-CI production cloud environments, we MUST NOT fall back to local Supabase
+  if (isVercel || (isProduction && !isCi)) {
+    const prodUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const prodKey =
+      process.env.SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_ANON_KEY;
+
+    if (!prodUrl || !prodKey) {
+      throw new Error(
+        'Vercel / Production Deployment Error: Missing Supabase credentials.\n' +
+        'SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_PUBLISHABLE_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY) must be configured in your Vercel Project Settings (Settings > Environment Variables).\n' +
+        'Vercel builds prerender static pages by snapshotting published content from your remote Supabase instance.'
+      );
+    }
+  }
+
+  const supabaseUrl =
+    process.env.SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    process.env.TEST_SUPABASE_URL ||
+    DEFAULT_LOCAL_URL;
+
+  const publishableKey =
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.TEST_SUPABASE_ANON_KEY ||
+    DEFAULT_LOCAL_PUBLISHABLE_KEY ||
+    DEFAULT_LOCAL_ANON_KEY;
 
   const url = new URL(supabaseUrl);
   const isLocal = url.hostname === '127.0.0.1' || url.hostname === 'localhost';
 
-  if (!isLocal && process.env.NODE_ENV === 'production') {
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_PUBLISHABLE_KEY) {
-      throw new Error('Fatal: SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be set in production environment.');
+  if (isVercel && isLocal) {
+    throw new Error(
+      `Invalid Supabase URL on Vercel: "${supabaseUrl}". Vercel cannot connect to localhost. Please specify your remote Supabase project URL in Vercel Environment Variables.`
+    );
+  }
+
+  if (!isLocal && isProduction) {
+    if (!process.env.SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      throw new Error('Fatal: SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) must be set in production environment.');
+    }
+    if (!process.env.SUPABASE_PUBLISHABLE_KEY && !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && !process.env.SUPABASE_ANON_KEY) {
+      throw new Error('Fatal: SUPABASE_PUBLISHABLE_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY) must be set in production environment.');
     }
   }
 
