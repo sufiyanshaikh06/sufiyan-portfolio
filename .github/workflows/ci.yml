@@ -30,15 +30,37 @@ jobs:
       
     - name: Run Database Tests (pgTAP)
       run: npx supabase test db
-      
-    - name: Run frontend and integration tests
-      run: npm run test
-      
-    - name: Check types
-      run: npm run type-check
+
+    - name: Configure Supabase Environment
+      run: |
+        STATUS="$(npx supabase status -o env)"
+        SUPABASE_URL_VALUE="$(printf '%s\n' "$STATUS" | grep '^API_URL=' | cut -d= -f2- | tr -d '"')"
+        PUBLISHABLE_KEY_VALUE="$(printf '%s\n' "$STATUS" | grep '^PUBLISHABLE_KEY=' | cut -d= -f2- | tr -d '"')"
+
+        {
+          echo "SUPABASE_URL=$SUPABASE_URL_VALUE"
+          echo "SUPABASE_PUBLISHABLE_KEY=$PUBLISHABLE_KEY_VALUE"
+          echo "NEXT_PUBLIC_SITE_URL=https://sufiyan-shaikh-dev.vercel.app"
+          echo "EXIT_GATE_ALLOW_LOCAL_STOP=1"
+        } >> "$GITHUB_ENV"
+
+    - name: Run Public Snapshot
+      run: npm run snapshot:public
       
     - name: Run lint
       run: npm run lint
       
+    - name: Check types
+      run: npm run type-check
+
+    - name: Run unit and integration tests
+      run: npm run test
+
+    - name: Install Playwright Chromium
+      run: npx playwright install chromium --with-deps
+
     - name: Build Next.js application
-      run: npm run build
+      run: npm run build:next
+
+    - name: Verify Phase 3 Exit Gate
+      run: npm run verify:gate

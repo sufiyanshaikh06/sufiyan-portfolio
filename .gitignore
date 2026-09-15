@@ -41,3 +41,11 @@ yarn-error.log*
 next-env.d.ts
 supabase/.temp/ 
 supabase/.branches/ 
+
+# generated snapshots
+/public/generated/
+/lib/generated/
+
+# playwright
+/test-results/
+/playwright-report/
