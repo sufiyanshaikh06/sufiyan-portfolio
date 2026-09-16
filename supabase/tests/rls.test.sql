@@ -9,7 +9,7 @@
 -- ==============================================================================
 
 BEGIN;
-SELECT plan(103);
+SELECT plan(184);
 
 -------------------------------------------------------------------------------
 -- 0. TEST FIXTURES SETUP
@@ -188,28 +188,24 @@ SELECT is((SELECT count(*) FROM public.resume_versions WHERE id = '10000000-0000
 SELECT is((SELECT count(*) FROM public.resume_versions WHERE id = '20000000-0000-0000-0000-000000000081'), 0::bigint, 'Anon: cannot see archived resume');
 SELECT is((SELECT count(*) FROM public.resume_versions WHERE id = '20000000-0000-0000-0000-000000000082'), 0::bigint, 'Anon: cannot see inactive resume');
 
--- Blocked reads
-SELECT is((SELECT count(*) FROM public.drafts), 0::bigint, 'Anon: cannot see drafts');
-SELECT is((SELECT count(*) FROM public.contact_messages), 0::bigint, 'Anon: cannot see contact messages');
-SELECT is((SELECT count(*) FROM public.admin_users), 0::bigint, 'Anon: cannot see admin users');
-SELECT is((SELECT count(*) FROM public.content_revisions), 0::bigint, 'Anon: cannot see content revisions');
+-- Blocked reads (table-level denial for unprivileged private tables)
+SELECT throws_ok($$ SELECT count(*) FROM public.drafts $$, '42501', 'permission denied for table drafts', 'Anon: cannot select from drafts');
+SELECT throws_ok($$ SELECT count(*) FROM public.contact_messages $$, '42501', 'permission denied for table contact_messages', 'Anon: cannot select from contact messages');
+SELECT throws_ok($$ SELECT count(*) FROM public.admin_users $$, '42501', 'permission denied for table admin_users', 'Anon: cannot select from admin users');
+SELECT throws_ok($$ SELECT count(*) FROM public.content_revisions $$, '42501', 'permission denied for table content_revisions', 'Anon: cannot select from content revisions');
 
 -- Storage reads (private resume bucket is completely hidden from anon)
 SELECT is((SELECT count(*) FROM storage.objects WHERE id = '30000000-0000-0000-0000-000000000001'), 1::bigint, 'Anon: sees public asset object');
 SELECT is((SELECT count(*) FROM storage.objects WHERE id = '30000000-0000-0000-0000-000000000002'), 0::bigint, 'Anon: cannot see private asset object');
 SELECT is((SELECT count(*) FROM storage.objects WHERE id = '30000000-0000-0000-0000-000000000003'), 0::bigint, 'Anon: cannot see private resume storage object');
 
--- Blocked mutations (verify no row modified)
-UPDATE public.projects SET title = 'Hacked' WHERE id = '20000000-0000-0000-0000-000000000020';
-SELECT is((SELECT title FROM public.projects WHERE id = '20000000-0000-0000-0000-000000000020'), 'Live Project', 'Anon: update on live project did not persist');
+-- Blocked mutations (table-level denial for unprivileged operations)
+SELECT throws_ok($$ UPDATE public.projects SET title = 'Hacked' WHERE id = '20000000-0000-0000-0000-000000000020' $$, '42501', 'permission denied for table projects', 'Anon: update on live project denied at table level');
+SELECT throws_ok($$ DELETE FROM public.projects WHERE id = '20000000-0000-0000-0000-000000000020' $$, '42501', 'permission denied for table projects', 'Anon: delete on live project denied at table level');
+SELECT throws_ok($$ UPDATE public.profiles SET full_name = 'Hacked' WHERE id = '20000000-0000-0000-0000-000000000010' $$, '42501', 'permission denied for table profiles', 'Anon: update on profile denied at table level');
 
-DELETE FROM public.projects WHERE id = '20000000-0000-0000-0000-000000000020';
-SELECT is((SELECT count(*) FROM public.projects WHERE id = '20000000-0000-0000-0000-000000000020'), 1::bigint, 'Anon: delete on live project did not persist');
-
-UPDATE public.profiles SET full_name = 'Hacked' WHERE id = '20000000-0000-0000-0000-000000000010';
-SELECT is((SELECT full_name FROM public.profiles WHERE id = '20000000-0000-0000-0000-000000000010'), 'Live Profile', 'Anon: update on profile did not persist');
-
-SELECT throws_ok($$ INSERT INTO public.contact_messages (sender_name, sender_email, subject, message) VALUES ('a','a','a','a') $$, 'new row violates row-level security policy for table "contact_messages"', 'Anon: cannot directly insert contact messages');
+SELECT throws_ok($$ INSERT INTO public.contact_messages (sender_name, sender_email, subject, message) VALUES ('a','a','a','a') $$, '42501', 'permission denied for table contact_messages', 'Anon: cannot directly insert contact messages');
+SELECT throws_ok($$ SELECT public.is_aal2_admin() $$, '42501', 'permission denied for function is_aal2_admin', 'Anon: direct invocation of is_aal2_admin() denied at function level');
 
 -------------------------------------------------------------------------------
 -- 2. AUTHENTICATED NON-OWNER (authenticated, aal1)
@@ -349,9 +345,13 @@ SELECT throws_ok(
     'AAL2: blocked from modifying active resume'
 );
 
--- Foreign Key ON DELETE RESTRICT and client deletion protection on media_assets
-DELETE FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000001';
-SELECT is((SELECT count(*) FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000001'), 1::bigint, 'AAL2: delete on media_assets does not delete any row');
+-- Client deletion protection on media_assets (denied at table level for archive-first table)
+SELECT throws_ok(
+    $$ DELETE FROM public.media_assets WHERE id = '20000000-0000-0000-0000-000000000001' $$,
+    '42501',
+    'permission denied for table media_assets',
+    'AAL2: delete on media_assets denied at table level'
+);
 
 -- Media Assets mutation protection
 SELECT throws_ok(
@@ -435,16 +435,18 @@ SELECT lives_ok(
     'AAL2: can delete drafts'
 );
 
--- Server-only tables are blocked from client insertion
+-- Server-only tables are blocked from client insertion (table privilege denied)
 SELECT throws_ok(
     $$ INSERT INTO public.content_revisions (entity_type, entity_id, previous_data) VALUES ('projects', '20000000-0000-0000-0000-000000000020', '{}') $$,
-    'new row violates row-level security policy for table "content_revisions"',
+    '42501',
+    'permission denied for table content_revisions',
     'AAL2: blocked from inserting content revisions'
 );
 
 SELECT throws_ok(
     $$ INSERT INTO public.publication_deployments (deployment_status) VALUES ('publication_queued') $$,
-    'new row violates row-level security policy for table "publication_deployments"',
+    '42501',
+    'permission denied for table publication_deployments',
     'AAL2: blocked from inserting publication deployments'
 );
 
@@ -508,6 +510,163 @@ SELECT throws_ok(
     'function public.publish_draft(unknown, unknown) does not exist',
     'Publishing RPC is removed from Phase 2 and deferred to Phase 6'
 );
+
+-------------------------------------------------------------------------------
+-- 6. POSTGRES TABLE & FUNCTION LEAST-PRIVILEGE MATRIX VERIFICATION
+-------------------------------------------------------------------------------
+-- Reset role to session user (postgres) for complete system catalog & information schema visibility
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '', true);
+
+-- Verify table-level permissions and function execution privileges across roles:
+
+-- (A) Anonymous Role Privileges (13 public content tables)
+SELECT ok(has_table_privilege('anon', 'public.profiles', 'SELECT'), 'Anon has SELECT on profiles');
+SELECT ok(has_table_privilege('anon', 'public.projects', 'SELECT'), 'Anon has SELECT on projects');
+SELECT ok(has_table_privilege('anon', 'public.project_sections', 'SELECT'), 'Anon has SELECT on project_sections');
+SELECT ok(has_table_privilege('anon', 'public.project_section_media', 'SELECT'), 'Anon has SELECT on project_section_media');
+SELECT ok(has_table_privilege('anon', 'public.skill_categories', 'SELECT'), 'Anon has SELECT on skill_categories');
+SELECT ok(has_table_privilege('anon', 'public.skills', 'SELECT'), 'Anon has SELECT on skills');
+SELECT ok(has_table_privilege('anon', 'public.education', 'SELECT'), 'Anon has SELECT on education');
+SELECT ok(has_table_privilege('anon', 'public.experiences', 'SELECT'), 'Anon has SELECT on experiences');
+SELECT ok(has_table_privilege('anon', 'public.certifications', 'SELECT'), 'Anon has SELECT on certifications');
+SELECT ok(has_table_privilege('anon', 'public.achievements', 'SELECT'), 'Anon has SELECT on achievements');
+SELECT ok(has_table_privilege('anon', 'public.resume_versions', 'SELECT'), 'Anon has SELECT on resume_versions');
+SELECT ok(has_table_privilege('anon', 'public.seo_entries', 'SELECT'), 'Anon has SELECT on seo_entries');
+SELECT ok(has_table_privilege('anon', 'public.media_assets', 'SELECT'), 'Anon has SELECT on media_assets');
+
+-- (B) Anonymous Role Denials (Unprivileged tables, mutation, function execution)
+SELECT ok(NOT has_table_privilege('anon', 'public.admin_users', 'SELECT'), 'Anon denied SELECT on admin_users');
+SELECT ok(NOT has_table_privilege('anon', 'public.drafts', 'SELECT'), 'Anon denied SELECT on drafts');
+SELECT ok(NOT has_table_privilege('anon', 'public.contact_messages', 'SELECT'), 'Anon denied SELECT on contact_messages');
+SELECT ok(NOT has_table_privilege('anon', 'public.contact_messages', 'INSERT'), 'Anon denied INSERT on contact_messages');
+SELECT ok(NOT has_table_privilege('anon', 'public.content_revisions', 'SELECT'), 'Anon denied SELECT on content_revisions');
+SELECT ok(NOT has_table_privilege('anon', 'public.publication_deployments', 'SELECT'), 'Anon denied SELECT on publication_deployments');
+SELECT ok(NOT has_table_privilege('anon', 'public.admin_activity', 'SELECT'), 'Anon denied SELECT on admin_activity');
+SELECT ok(NOT has_table_privilege('anon', 'public.projects', 'INSERT'), 'Anon denied INSERT on projects');
+SELECT ok(NOT has_table_privilege('anon', 'public.profiles', 'UPDATE'), 'Anon denied UPDATE on profiles');
+SELECT ok(NOT has_table_privilege('anon', 'public.projects', 'DELETE'), 'Anon denied DELETE on projects');
+SELECT ok(NOT has_function_privilege('anon', 'public.is_aal2_admin()', 'EXECUTE'), 'Anon denied EXECUTE on is_aal2_admin()');
+SELECT ok(NOT has_function_privilege('public', 'public.is_aal2_admin()', 'EXECUTE'), 'PUBLIC denied EXECUTE on is_aal2_admin()');
+SELECT is((SELECT count(*) FROM information_schema.routine_privileges WHERE routine_schema = 'public' AND grantee = 'anon' AND privilege_type = 'EXECUTE'), 0::bigint, 'Anon has zero EXECUTE privileges on routines in public schema');
+
+-- (C) Authenticated Role Privileges & Denials (Approved CMS privileges, archive-first, server-only)
+SELECT ok(has_table_privilege('authenticated', 'public.drafts', 'INSERT'), 'Authenticated has INSERT on drafts');
+SELECT ok(has_table_privilege('authenticated', 'public.drafts', 'UPDATE'), 'Authenticated has UPDATE on drafts');
+SELECT ok(has_table_privilege('authenticated', 'public.drafts', 'DELETE'), 'Authenticated has DELETE on drafts');
+SELECT ok(has_table_privilege('authenticated', 'public.profiles', 'INSERT'), 'Authenticated has INSERT on profiles');
+SELECT ok(has_table_privilege('authenticated', 'public.profiles', 'UPDATE'), 'Authenticated has UPDATE on profiles');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.profiles', 'DELETE'), 'Authenticated denied DELETE on profiles (archive-first)');
+SELECT ok(has_table_privilege('authenticated', 'public.projects', 'INSERT'), 'Authenticated has INSERT on projects');
+SELECT ok(has_table_privilege('authenticated', 'public.projects', 'UPDATE'), 'Authenticated has UPDATE on projects');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.projects', 'DELETE'), 'Authenticated denied DELETE on projects (archive-first)');
+SELECT ok(has_table_privilege('authenticated', 'public.project_sections', 'DELETE'), 'Authenticated has DELETE on project_sections');
+SELECT ok(has_table_privilege('authenticated', 'public.project_section_media', 'DELETE'), 'Authenticated has DELETE on project_section_media');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.media_assets', 'DELETE'), 'Authenticated denied DELETE on media_assets (archive-first)');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.admin_users', 'INSERT'), 'Authenticated denied INSERT on admin_users');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.admin_users', 'UPDATE'), 'Authenticated denied UPDATE on admin_users');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.admin_users', 'DELETE'), 'Authenticated denied DELETE on admin_users');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.content_revisions', 'INSERT'), 'Authenticated denied INSERT on content_revisions');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.publication_deployments', 'INSERT'), 'Authenticated denied INSERT on publication_deployments');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.admin_activity', 'INSERT'), 'Authenticated denied INSERT on admin_activity');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.contact_messages', 'INSERT'), 'Authenticated denied INSERT on contact_messages');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.contact_messages', 'DELETE'), 'Authenticated denied DELETE on contact_messages');
+SELECT ok(has_table_privilege('authenticated', 'public.contact_messages', 'UPDATE'), 'Authenticated has UPDATE on contact_messages');
+SELECT ok(has_function_privilege('authenticated', 'public.is_aal2_admin()', 'EXECUTE'), 'Authenticated has EXECUTE on is_aal2_admin()');
+SELECT is((SELECT count(*) FROM information_schema.role_usage_grants WHERE grantee = 'authenticated' AND object_schema = 'public' AND object_type = 'SEQUENCE'), 0::bigint, 'Authenticated role has zero sequence USAGE privileges in public schema');
+
+-- (D) Service Role Privileges (Required server provisioning privileges)
+SELECT ok(has_table_privilege('service_role', 'public.profiles', 'INSERT'), 'Service role has INSERT on profiles');
+SELECT ok(has_table_privilege('service_role', 'public.projects', 'INSERT'), 'Service role has INSERT on projects');
+SELECT ok(has_table_privilege('service_role', 'public.media_assets', 'INSERT'), 'Service role has INSERT on media_assets');
+SELECT ok(has_table_privilege('service_role', 'public.contact_messages', 'INSERT'), 'Service role has INSERT on contact_messages');
+SELECT ok(has_table_privilege('service_role', 'public.content_revisions', 'INSERT'), 'Service role has INSERT on content_revisions');
+SELECT ok(has_table_privilege('service_role', 'public.publication_deployments', 'INSERT'), 'Service role has INSERT on publication_deployments');
+SELECT ok(has_table_privilege('service_role', 'public.admin_activity', 'INSERT'), 'Service role has INSERT on admin_activity');
+SELECT ok(has_function_privilege('service_role', 'public.is_aal2_admin()', 'EXECUTE'), 'Service role has EXECUTE on is_aal2_admin()');
+
+-- (E) Information Schema Role Table Grants Matrix
+SELECT is((SELECT count(*) FROM information_schema.role_table_grants WHERE grantee = 'anon' AND table_schema = 'public' AND privilege_type <> 'SELECT'), 0::bigint, 'Anon has zero non-SELECT table privileges in public schema');
+SELECT is((SELECT count(*) FROM information_schema.role_table_grants WHERE grantee = 'anon' AND table_schema = 'public' AND table_name NOT IN ('profiles', 'projects', 'project_sections', 'project_section_media', 'skill_categories', 'skills', 'education', 'experiences', 'certifications', 'achievements', 'resume_versions', 'seo_entries', 'media_assets')), 0::bigint, 'Anon has zero table privileges on non-public tables in public schema');
+SELECT is((SELECT count(*) FROM information_schema.role_table_grants WHERE grantee = 'anon' AND table_schema = 'public' AND privilege_type = 'SELECT'), 13::bigint, 'Anon has SELECT on exactly 13 public content tables');
+SELECT is((SELECT count(*) FROM information_schema.role_table_grants WHERE grantee = 'PUBLIC' AND table_schema = 'public'), 0::bigint, 'PUBLIC role has zero table privileges in public schema');
+
+-- (F) Admin RLS Policies Role Assignment
+SELECT is((SELECT count(*) FROM pg_policies WHERE policyname LIKE 'Admins%' AND roles <> '{authenticated}'), 0::bigint, 'Every admin policy is explicitly assigned strictly to authenticated role');
+
+-- (G) Default ACL Verification (pg_default_acl for postgres role)
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_default_acl d
+        JOIN pg_namespace n ON n.oid = d.defaclnamespace
+        JOIN pg_roles r ON r.oid = d.defaclrole,
+        unnest(d.defaclacl) AS acl_entry
+        WHERE n.nspname = 'public'
+          AND r.rolname = 'postgres'
+          AND d.defaclobjtype = 'r'
+          AND split_part(acl_entry::text, '=', 1) IN ('anon', 'authenticated', '')
+    ),
+    'Default ACL: postgres grants no default table privileges in public to anon, authenticated, or public'
+);
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_default_acl d
+        JOIN pg_namespace n ON n.oid = d.defaclnamespace
+        JOIN pg_roles r ON r.oid = d.defaclrole,
+        unnest(d.defaclacl) AS acl_entry
+        WHERE n.nspname = 'public'
+          AND r.rolname = 'postgres'
+          AND d.defaclobjtype = 'f'
+          AND split_part(acl_entry::text, '=', 1) IN ('anon', 'authenticated', '')
+    ),
+    'Default ACL: postgres grants no default function privileges in public to anon, authenticated, or public'
+);
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM pg_default_acl d
+        JOIN pg_namespace n ON n.oid = d.defaclnamespace
+        JOIN pg_roles r ON r.oid = d.defaclrole,
+        unnest(d.defaclacl) AS acl_entry
+        WHERE n.nspname = 'public'
+          AND r.rolname = 'postgres'
+          AND d.defaclobjtype = 'S'
+          AND split_part(acl_entry::text, '=', 1) IN ('anon', 'authenticated', '')
+    ),
+    'Default ACL: postgres grants no default sequence privileges in public to anon, authenticated, or public'
+);
+
+-- (H) Schema Privileges
+SELECT ok(has_schema_privilege('anon', 'public', 'USAGE'), 'Schema privilege: anon has USAGE on public');
+SELECT ok(NOT has_schema_privilege('anon', 'public', 'CREATE'), 'Schema privilege: anon denied CREATE on public');
+SELECT ok(has_schema_privilege('authenticated', 'public', 'USAGE'), 'Schema privilege: authenticated has USAGE on public');
+SELECT ok(NOT has_schema_privilege('authenticated', 'public', 'CREATE'), 'Schema privilege: authenticated denied CREATE on public');
+SELECT ok(NOT has_schema_privilege('public', 'public', 'CREATE'), 'Schema privilege: PUBLIC denied CREATE on public');
+SELECT ok(NOT has_schema_privilege('public', 'public', 'USAGE'), 'Schema privilege: PUBLIC denied USAGE on public');
+
+-- (I) Future-Object Privilege Canaries (Transactional table, sequence, and function verification)
+CREATE TABLE public.default_acl_table_canary (id integer);
+CREATE SEQUENCE public.default_acl_sequence_canary;
+CREATE FUNCTION public.default_acl_function_canary() RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$;
+
+-- Canary Table Privileges: anon and authenticated receive no automatic table privileges
+SELECT ok(NOT has_table_privilege('anon', 'public.default_acl_table_canary', 'SELECT'), 'Canary table: anon has no SELECT');
+SELECT ok(NOT has_table_privilege('anon', 'public.default_acl_table_canary', 'INSERT'), 'Canary table: anon has no INSERT');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.default_acl_table_canary', 'SELECT'), 'Canary table: authenticated has no SELECT');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.default_acl_table_canary', 'INSERT'), 'Canary table: authenticated has no INSERT');
+
+-- Canary Sequence Privileges: anon and authenticated receive no automatic sequence privileges
+SELECT ok(NOT has_sequence_privilege('anon', 'public.default_acl_sequence_canary', 'USAGE'), 'Canary sequence: anon has no USAGE');
+SELECT ok(NOT has_sequence_privilege('authenticated', 'public.default_acl_sequence_canary', 'USAGE'), 'Canary sequence: authenticated has no USAGE');
+
+-- Canary Function Privileges: PUBLIC, anon, and authenticated receive no automatic EXECUTE
+SELECT ok(NOT has_function_privilege('public', 'public.default_acl_function_canary()', 'EXECUTE'), 'Canary function: PUBLIC has no EXECUTE');
+SELECT ok(NOT has_function_privilege('anon', 'public.default_acl_function_canary()', 'EXECUTE'), 'Canary function: anon has no EXECUTE');
+SELECT ok(NOT has_function_privilege('authenticated', 'public.default_acl_function_canary()', 'EXECUTE'), 'Canary function: authenticated has no EXECUTE');
+
+-- Clean up canaries
+DROP FUNCTION public.default_acl_function_canary();
+DROP SEQUENCE public.default_acl_sequence_canary;
+DROP TABLE public.default_acl_table_canary;
 
 SELECT * FROM finish();
 ROLLBACK;
