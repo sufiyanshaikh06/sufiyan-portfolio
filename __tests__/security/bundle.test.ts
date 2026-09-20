@@ -48,7 +48,8 @@ describe('Security and Graphics Isolation Checks', () => {
     const snapshot = getSnapshot();
     expect(snapshot).toBeDefined();
     expect(snapshot.profile.fullName).toBe('Sufiyan Shaikh');
-    expect(snapshot.integrum.slug).toBe('integrum');
+    expect(snapshot.projects.length).toBeGreaterThanOrEqual(1);
+    expect(snapshot.projects.some((p) => p.slug === 'integrum')).toBe(true);
   });
 
   it('confirms components do not import @supabase/supabase-js', () => {

@@ -1,7 +1,16 @@
 export type {
   LocalMediaAsset,
+  SectionMedia,
   ProjectSection,
   ProjectCaseStudy,
+  Skill,
+  SkillCategory,
+  Education,
+  Experience,
+  Certification,
+  Achievement,
+  SeoEntry,
+  ActiveResumeMetadata,
   Profile,
   PublicSnapshot,
 } from '@/lib/schemas/snapshot';

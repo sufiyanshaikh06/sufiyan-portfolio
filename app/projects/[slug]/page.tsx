@@ -103,8 +103,8 @@ export default async function ProjectCaseStudyPage({ params }: PageProps) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={project.featuredAsset.localPath}
-              width={project.featuredAsset.width}
-              height={project.featuredAsset.height}
+              width={project.featuredAsset.width ?? undefined}
+              height={project.featuredAsset.height ?? undefined}
               alt={project.featuredAsset.altText}
               className="w-full h-full object-cover"
               loading="eager"
@@ -139,48 +139,58 @@ export default async function ProjectCaseStudyPage({ params }: PageProps) {
           </div>
         </HudCard>
 
-        {/* Structured Sections */}
-        <section aria-labelledby="detailed-sections-heading" className="flex flex-col gap-6">
-          <h2 id="detailed-sections-heading" className="sr-only">
-            Case Study Sections
-          </h2>
+        {/* Structured Sections (Rendered only when sections exist) */}
+        {project.sections.length > 0 && (
+          <section aria-labelledby="detailed-sections-heading" className="flex flex-col gap-6">
+            <h2 id="detailed-sections-heading" className="sr-only">
+              Case Study Sections
+            </h2>
 
-          {project.sections.map((section) => (
-            <HudCard key={section.id} className="flex flex-col gap-4">
-              <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                <h3 className="font-display text-xl font-bold text-white flex items-center gap-2">
-                  <span className="text-neon-cyan text-sm">#{section.displayOrder}</span>
-                  <span>{section.title}</span>
-                </h3>
-              </div>
-
-              <div className="font-sans text-gray-300 leading-relaxed text-base space-y-4">
-                <p>{section.content}</p>
-              </div>
-
-              {section.media && section.media.length > 0 && (
-                <div className="grid grid-cols-1 gap-4 mt-2">
-                  {section.media.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="rounded border border-white/10 overflow-hidden bg-void-black/60"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={item.localPath}
-                        width={item.width}
-                        height={item.height}
-                        alt={item.altText}
-                        className="w-full h-auto object-contain"
-                        loading="lazy"
-                      />
-                    </div>
-                  ))}
+            {project.sections.map((section) => (
+              <HudCard
+                key={`${project.slug}-section-${section.displayOrder}`}
+                className="flex flex-col gap-4"
+              >
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                  <h3 className="font-display text-xl font-bold text-white flex items-center gap-2">
+                    <span className="text-neon-cyan text-sm">#{section.displayOrder}</span>
+                    <span>{section.title}</span>
+                  </h3>
                 </div>
-              )}
-            </HudCard>
-          ))}
-        </section>
+
+                <div className="font-sans text-gray-300 leading-relaxed text-base space-y-4">
+                  <p>{section.content}</p>
+                </div>
+
+                {section.media && section.media.length > 0 && (
+                  <div className="grid grid-cols-1 gap-4 mt-2">
+                    {section.media.map((item) => (
+                      <div
+                        key={`${project.slug}-section-${section.displayOrder}-media-${item.displayOrder}`}
+                        className="rounded border border-white/10 overflow-hidden bg-void-black/60"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={item.localPath}
+                          width={item.width ?? undefined}
+                          height={item.height ?? undefined}
+                          alt={item.altText}
+                          className="w-full h-auto object-contain"
+                          loading="lazy"
+                        />
+                        {item.caption && (
+                          <p className="p-2 text-xs font-mono text-gray-400 bg-black/40 border-t border-white/5">
+                            {item.caption}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </HudCard>
+            ))}
+          </section>
+        )}
 
         {/* External Links (Conditional) */}
         {(project.demoUrl || project.githubUrl) && (

@@ -1,4 +1,4 @@
-import { getSnapshot } from '@/lib/content';
+import { getPublishedProfile, getIntegrumCaseStudy } from '@/lib/content';
 import { HudButton } from '@/components/ui/HudButton';
 import { HudCard } from '@/components/ui/HudCard';
 
@@ -6,7 +6,8 @@ export const dynamic = 'error';
 export const revalidate = false;
 
 export default function Home() {
-  const { profile, integrum } = getSnapshot();
+  const profile = getPublishedProfile();
+  const integrum = getIntegrumCaseStudy();
 
   return (
     <main
@@ -60,8 +61,8 @@ export default function Home() {
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={profile.avatar.localPath}
-                width={profile.avatar.width}
-                height={profile.avatar.height}
+                width={profile.avatar.width ?? undefined}
+                height={profile.avatar.height ?? undefined}
                 alt={profile.avatar.altText}
                 className="w-full h-full object-cover rounded-full"
                 loading="eager"
@@ -136,8 +137,8 @@ export default function Home() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={integrum.featuredAsset.localPath}
-                    width={integrum.featuredAsset.width}
-                    height={integrum.featuredAsset.height}
+                    width={integrum.featuredAsset.width ?? undefined}
+                    height={integrum.featuredAsset.height ?? undefined}
                     alt={integrum.featuredAsset.altText}
                     className="w-full h-full object-cover"
                     loading="lazy"

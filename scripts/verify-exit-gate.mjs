@@ -176,10 +176,23 @@ async function main() {
       throw new Error('Initial HTML for /projects/integrum missing "Overview" section.');
     }
 
-    // IoT Temp Monitor Probe (Must 404 in Phase 3)
+    // Dynamic Project Slug Probes
+    const snapshotPath = path.resolve(rootDir, 'lib/generated/public-snapshot.json');
+    const snapshotJson = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+    const isIotInSnapshot = (snapshotJson.projects || []).some((p) => p.slug === 'iot-temp-monitor');
+
     const iotRes = await fetch(`${BASE_URL}/projects/iot-temp-monitor`);
-    console.log(`Probe GET /projects/iot-temp-monitor -> HTTP ${iotRes.status} (Expected 404)`);
-    if (iotRes.status !== 404) throw new Error(`Expected HTTP 404 for /projects/iot-temp-monitor in Phase 3, got ${iotRes.status}`);
+    const expectedIotStatus = isIotInSnapshot ? 200 : 404;
+    console.log(`Probe GET /projects/iot-temp-monitor -> HTTP ${iotRes.status} (Expected ${expectedIotStatus})`);
+    if (iotRes.status !== expectedIotStatus) {
+      throw new Error(`Expected HTTP ${expectedIotStatus} for /projects/iot-temp-monitor, got ${iotRes.status}`);
+    }
+    if (isIotInSnapshot) {
+      const iotHtml = await iotRes.text();
+      if (!iotHtml.includes('IoT Body Temperature Monitoring System')) {
+        throw new Error('Initial HTML for /projects/iot-temp-monitor missing project title.');
+      }
+    }
 
     // Unknown Slug Probe (Must 404)
     const unknownRes = await fetch(`${BASE_URL}/projects/unknown-slug-xyz`);
@@ -224,10 +237,10 @@ async function main() {
     console.log('Playwright E2E suite passed completely.');
 
     console.log('\n===========================================================');
-    console.log('✔ Phase 3 Exit Gate Verification PASSED Successfully!');
+    console.log('✔ Phase 4A Exit Gate Verification PASSED Successfully!');
     console.log('===========================================================');
   } catch (err) {
-    console.error('\n✖ Phase 3 Exit Gate Verification FAILED:', err);
+    console.error('\n✖ Phase 4A Exit Gate Verification FAILED:', err);
     exitGateError = err;
   } finally {
     // Clean up server process
