@@ -31,10 +31,34 @@ export function Header() {
             </li>
             <li>
               <Link
-                href="/projects/integrum"
+                href="/about"
                 className="inline-flex items-center justify-center px-2.5 py-2 text-gray-300 hover:text-neon-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-void-black rounded-sm transition-colors motion-reduce:transition-none min-h-[44px]"
               >
-                Featured Project
+                About
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/projects"
+                className="inline-flex items-center justify-center px-2.5 py-2 text-gray-300 hover:text-neon-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-void-black rounded-sm transition-colors motion-reduce:transition-none min-h-[44px]"
+              >
+                Projects
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/skills"
+                className="inline-flex items-center justify-center px-2.5 py-2 text-gray-300 hover:text-neon-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-void-black rounded-sm transition-colors motion-reduce:transition-none min-h-[44px]"
+              >
+                Skills
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/experience"
+                className="inline-flex items-center justify-center px-2.5 py-2 text-gray-300 hover:text-neon-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-void-black rounded-sm transition-colors motion-reduce:transition-none min-h-[44px]"
+              >
+                Experience
               </Link>
             </li>
             <li>

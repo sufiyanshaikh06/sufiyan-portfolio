@@ -104,5 +104,88 @@ test.describe('Phase 3 Browser Exit Gate: Network & JS Isolation', () => {
 
       expect(isOverflown, `Horizontal overflow detected on case study at viewport ${vp.name}`).toBe(false);
     });
+
+    test(`Phase 4B: confirms no horizontal overflow on /about at ${vp.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await page.goto('/about');
+
+      const isOverflown = await page.evaluate(() => {
+        return document.documentElement.scrollWidth > window.innerWidth;
+      });
+
+      expect(isOverflown, `Horizontal overflow on /about at viewport ${vp.name}`).toBe(false);
+    });
+
+    test(`Phase 4B: confirms no horizontal overflow on /projects at ${vp.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await page.goto('/projects');
+
+      const isOverflown = await page.evaluate(() => {
+        return document.documentElement.scrollWidth > window.innerWidth;
+      });
+
+      expect(isOverflown, `Horizontal overflow on /projects at viewport ${vp.name}`).toBe(false);
+    });
   }
+
+  test('Phase 4B: new pages return HTTP 200 and contain expected content with JS enabled', async ({ page }) => {
+    const recordedRequests: string[] = [];
+    page.on('request', (request) => { recordedRequests.push(request.url()); });
+
+    // /about
+    const aboutRes = await page.goto('/about');
+    expect(aboutRes?.status()).toBe(200);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: /about/i })).toBeVisible();
+
+    // /projects
+    const projectsRes = await page.goto('/projects');
+    expect(projectsRes?.status()).toBe(200);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: /projects/i })).toBeVisible();
+
+    // /skills
+    const skillsRes = await page.goto('/skills');
+    expect(skillsRes?.status()).toBe(200);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: /skills/i })).toBeVisible();
+
+    // /experience
+    const experienceRes = await page.goto('/experience');
+    expect(experienceRes?.status()).toBe(200);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: /experience/i })).toBeVisible();
+
+    // Confirm zero Supabase requests across all four pages
+    const forbiddenPatterns = ['54321', 'supabase.co', '/rest/v1', '/storage/v1'];
+    for (const reqUrl of recordedRequests) {
+      for (const pattern of forbiddenPatterns) {
+        expect(
+          reqUrl.includes(pattern),
+          `Forbidden runtime request on new pages: ${reqUrl} matched: ${pattern}`
+        ).toBe(false);
+      }
+    }
+  });
+
+  test('Phase 4B: new pages functional with JavaScript disabled', async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+
+    await page.goto('/about');
+    await expect(page.getByRole('heading', { level: 1, name: /about/i })).toBeVisible();
+
+    await page.goto('/projects');
+    await expect(page.getByRole('heading', { level: 1, name: /projects/i })).toBeVisible();
+    // At least one project card's h2 visible (Integrum is published locally)
+    await expect(page.getByRole('heading', { level: 2 }).first()).toBeVisible();
+
+    await page.goto('/skills');
+    await expect(page.getByRole('heading', { level: 1, name: /skills/i })).toBeVisible();
+
+    await page.goto('/experience');
+    await expect(page.getByRole('heading', { level: 1, name: /experience/i })).toBeVisible();
+
+    await context.close();
+  });
 });

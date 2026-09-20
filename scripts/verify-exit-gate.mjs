@@ -199,6 +199,33 @@ async function main() {
     console.log(`Probe GET /projects/unknown-slug-xyz -> HTTP ${unknownRes.status} (Expected 404)`);
     if (unknownRes.status !== 404) throw new Error(`Expected HTTP 404 for unknown slug, got ${unknownRes.status}`);
 
+    // Phase 4B Static Route Probes
+    console.log('\n--- Phase 4B: New Static Route Probes ---');
+
+    const aboutRes = await fetch(`${BASE_URL}/about`);
+    console.log(`Probe GET /about -> HTTP ${aboutRes.status}`);
+    if (aboutRes.status !== 200) throw new Error(`Expected HTTP 200 for /about, got ${aboutRes.status}`);
+    const aboutHtml = await aboutRes.text();
+    if (!aboutHtml.includes('Sufiyan Shaikh')) {
+      throw new Error('/about HTML missing profile full name.');
+    }
+
+    const projectsListRes = await fetch(`${BASE_URL}/projects`);
+    console.log(`Probe GET /projects -> HTTP ${projectsListRes.status}`);
+    if (projectsListRes.status !== 200) throw new Error(`Expected HTTP 200 for /projects, got ${projectsListRes.status}`);
+    const projectsHtml = await projectsListRes.text();
+    if (!projectsHtml.includes('Integrum')) {
+      throw new Error('/projects HTML missing at least one project title.');
+    }
+
+    const skillsRes = await fetch(`${BASE_URL}/skills`);
+    console.log(`Probe GET /skills -> HTTP ${skillsRes.status}`);
+    if (skillsRes.status !== 200) throw new Error(`Expected HTTP 200 for /skills, got ${skillsRes.status}`);
+
+    const experienceRes = await fetch(`${BASE_URL}/experience`);
+    console.log(`Probe GET /experience -> HTTP ${experienceRes.status}`);
+    if (experienceRes.status !== 200) throw new Error(`Expected HTTP 200 for /experience, got ${experienceRes.status}`);
+
     // Image Caching Probe
     const imgMatch = homeHtml.match(/\/generated\/snapshot\/[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+/);
     if (imgMatch) {
@@ -237,10 +264,10 @@ async function main() {
     console.log('Playwright E2E suite passed completely.');
 
     console.log('\n===========================================================');
-    console.log('✔ Phase 4A Exit Gate Verification PASSED Successfully!');
+    console.log('✔ Phase 4B Exit Gate Verification PASSED Successfully!');
     console.log('===========================================================');
   } catch (err) {
-    console.error('\n✖ Phase 4A Exit Gate Verification FAILED:', err);
+    console.error('\n✖ Phase 4B Exit Gate Verification FAILED:', err);
     exitGateError = err;
   } finally {
     // Clean up server process
