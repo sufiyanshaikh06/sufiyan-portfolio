@@ -130,7 +130,13 @@ async function main() {
     });
 
     serverProcess.stderr.on('data', (data) => {
-      console.error(`[NEXT STDERR] ${data.toString().trim()}`);
+      const msg = data.toString().trim();
+      // Next.js emits "Internal: NoFallbackError" to stderr when serving a
+      // statically-generated 404 page for an unknown route. This is expected
+      // behaviour during the unknown-slug probe and must not be surfaced as a
+      // gate failure or confuse process supervisors.
+      if (msg.includes('NoFallbackError')) return;
+      console.error(`[NEXT STDERR] ${msg}`);
     });
 
     serverProcess.on('exit', (code) => {

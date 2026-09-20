@@ -73,4 +73,37 @@ describe('Security and Graphics Isolation Checks', () => {
       }
     }
   });
+
+  it('confirms exit gate script has exactly one process.exit(1) path guarded by the catch handler', () => {
+    // Structural regression: the gate must never call process.exit(1) from inside
+    // the finally block or the success path — only from main().catch().
+    const gatePath = path.resolve(process.cwd(), 'scripts/verify-exit-gate.mjs');
+    expect(fs.existsSync(gatePath)).toBe(true);
+
+    const src = fs.readFileSync(gatePath, 'utf8');
+
+    // Exactly one call to process.exit with a non-zero code
+    const exitOneMatches = src.match(/process\.exit\(1\)/g);
+    expect(exitOneMatches, 'Expected exactly one process.exit(1) in verify-exit-gate.mjs').toHaveLength(1);
+
+    // That single exit(1) must appear inside the main().catch() handler, not inside main()
+    const catchHandlerIdx = src.indexOf('main().catch(');
+    const exitOneIdx = src.indexOf('process.exit(1)');
+    expect(catchHandlerIdx).toBeGreaterThan(0);
+    expect(exitOneIdx).toBeGreaterThan(catchHandlerIdx);
+  });
+
+  it('confirms exit gate script suppresses the benign Next.js NoFallbackError from stderr', () => {
+    // Regression: the NoFallbackError is emitted by Next.js when the 404 probe hits an
+    // unknown static route. It must be filtered before reaching console.error so that
+    // process supervisors using 2>&1 stream merging cannot misinterpret it as a failure.
+    const gatePath = path.resolve(process.cwd(), 'scripts/verify-exit-gate.mjs');
+    const src = fs.readFileSync(gatePath, 'utf8');
+    expect(src).toContain('NoFallbackError');
+    // The filter must short-circuit (return early) before console.error
+    const filterIdx = src.indexOf("if (msg.includes('NoFallbackError')) return;");
+    const consoleErrIdx = src.indexOf('console.error(`[NEXT STDERR]');
+    expect(filterIdx).toBeGreaterThan(0);
+    expect(filterIdx).toBeLessThan(consoleErrIdx);
+  });
 });
