@@ -10,7 +10,7 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:3001',
+    baseURL: process.env.BASE_URL || 'http://127.0.0.1:3001',
     trace: 'on-first-retry',
   },
   projects: [
