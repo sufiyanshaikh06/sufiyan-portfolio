@@ -85,11 +85,28 @@ INSERT INTO public.project_section_media (id, section_id, media_asset_id, displa
 ON CONFLICT (section_id, media_asset_id) DO UPDATE SET display_order = EXCLUDED.display_order;
 
 -- 10. SEO Entries
-INSERT INTO public.seo_entries (id, route_path, title, description, is_published, is_archived, og_image_asset_id) VALUES
-('10000000-0000-0000-0000-000000000070', '/', 'Sufiyan Shaikh | Portfolio', 'Computer Science Student focused on artificial intelligence, machine learning and software engineering.', true, false, '10000000-0000-0000-0000-000000000010')
-ON CONFLICT (route_path) DO UPDATE SET title = EXCLUDED.title, description = EXCLUDED.description;
+INSERT INTO public.seo_entries (id, route_path, title, description, keywords, og_image_asset_id, is_published, is_archived) VALUES
+('10000000-0000-0000-0000-000000000070', '/', 'Sufiyan Shaikh | Computer Science Student & Developer', 'Personal portfolio of Sufiyan Shaikh, Computer Science student focused on artificial intelligence, machine learning, and intelligent software engineering.', ARRAY['Sufiyan Shaikh', 'Computer Science', 'Portfolio', 'Full-Stack Developer'], '10000000-0000-0000-0000-000000000010', true, false),
+('10000000-0000-0000-0000-000000000071', '/about', 'About | Sufiyan Shaikh', 'Academic background, technical focus, and journey of Sufiyan Shaikh in Computer Science and software systems engineering.', ARRAY['About Sufiyan Shaikh', 'Education', 'Computer Science Student', 'University of Mumbai'], '10000000-0000-0000-0000-000000000010', true, false),
+('10000000-0000-0000-0000-000000000072', '/projects', 'Projects | Sufiyan Shaikh', 'Technical case studies and systems built by Sufiyan Shaikh, spanning full-stack web platforms and embedded IoT prototypes.', ARRAY['Projects', 'Software Projects', 'Full-Stack', 'IoT', 'Integrum'], '10000000-0000-0000-0000-000000000010', true, false),
+('10000000-0000-0000-0000-000000000073', '/projects/integrum', 'Integrum — Student Success Platform | Case Study', 'Full-stack student-success platform integrating academic, productivity, and career-management workflows with Next.js, Node.js, and PostgreSQL.', ARRAY['Integrum', 'Student Success Platform', 'React', 'TypeScript', 'Tailwind CSS', 'PostgreSQL'], '10000000-0000-0000-0000-000000000011', true, false),
+('10000000-0000-0000-0000-000000000074', '/projects/iot-temp-monitor', 'IoT Body Temperature Monitoring System | Case Study', 'ESP32-based health telemetry device integrating DS18B20 digital temperature sensing, I2C LCD, local alerts, and ThingSpeak cloud telemetry.', ARRAY['IoT', 'ESP32', 'DS18B20', 'Temperature Monitoring', 'Arduino', 'ThingSpeak'], '10000000-0000-0000-0000-000000000012', true, false),
+('10000000-0000-0000-0000-000000000075', '/skills', 'Skills & Technical Stack | Sufiyan Shaikh', 'Technical competencies, languages, frameworks, and tools across modern full-stack development and systems programming.', ARRAY['Skills', 'TypeScript', 'Python', 'React', 'Node.js', 'C++'], '10000000-0000-0000-0000-000000000010', true, false),
+('10000000-0000-0000-0000-000000000076', '/experience', 'Experience & Academic Journey | Sufiyan Shaikh', 'Academic milestones, verified education, and technical trajectory of Sufiyan Shaikh.', ARRAY['Experience', 'Academic Journey', 'Computer Science'], '10000000-0000-0000-0000-000000000010', true, false)
+ON CONFLICT (route_path) DO UPDATE SET title = EXCLUDED.title, description = EXCLUDED.description, keywords = EXCLUDED.keywords, og_image_asset_id = EXCLUDED.og_image_asset_id;
 
--- 11. Resume Versions
+-- 11. Education
+INSERT INTO public.education (id, institution, degree, field_of_study, start_date, end_date, description, is_published, is_archived) VALUES
+('10000000-0000-0000-0000-000000000090', 'R.K. Talreja College of Arts, Science and Commerce', 'Bachelor of Science', 'Computer Science', NULL, NULL, 'Affiliated with the University of Mumbai. Expected graduation in 2027.', true, false)
+ON CONFLICT (id) DO UPDATE SET 
+    institution = EXCLUDED.institution,
+    degree = EXCLUDED.degree,
+    field_of_study = EXCLUDED.field_of_study,
+    start_date = EXCLUDED.start_date,
+    end_date = EXCLUDED.end_date,
+    description = EXCLUDED.description;
+
+-- 12. Resume Versions
 INSERT INTO public.resume_versions (id, version_label, file_asset_id, is_active, is_archived) VALUES
 ('10000000-0000-0000-0000-000000000080', 'Development Fixture Resume', '10000000-0000-0000-0000-000000000013', true, false)
 ON CONFLICT (id) DO UPDATE SET 

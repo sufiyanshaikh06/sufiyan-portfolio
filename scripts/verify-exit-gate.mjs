@@ -72,7 +72,7 @@ async function scanDirectoryForCanaries(dirPath, forbiddenStrings) {
 
 async function main() {
   console.log('===========================================================');
-  console.log('--- Phase 3 Exit Gate Verification ---');
+  console.log('--- Phase 4C Exit Gate Verification ---');
   console.log('===========================================================');
 
   // 1. Verify build exists
@@ -215,6 +215,10 @@ async function main() {
     if (!aboutHtml.includes('Sufiyan Shaikh')) {
       throw new Error('/about HTML missing profile full name.');
     }
+    const isEduInSnapshot = (snapshotJson.education || []).length > 0;
+    if (isEduInSnapshot && !aboutHtml.includes('R.K. Talreja College')) {
+      throw new Error('/about HTML missing verified education institution.');
+    }
 
     const projectsListRes = await fetch(`${BASE_URL}/projects`);
     console.log(`Probe GET /projects -> HTTP ${projectsListRes.status}`);
@@ -227,6 +231,11 @@ async function main() {
     const skillsRes = await fetch(`${BASE_URL}/skills`);
     console.log(`Probe GET /skills -> HTTP ${skillsRes.status}`);
     if (skillsRes.status !== 200) throw new Error(`Expected HTTP 200 for /skills, got ${skillsRes.status}`);
+    const isSkillsInSnapshot = (snapshotJson.skillCategories || []).length > 0;
+    const skillsHtml = await skillsRes.text();
+    if (isSkillsInSnapshot && !skillsHtml.includes('TypeScript')) {
+      throw new Error('/skills HTML missing verified skills.');
+    }
 
     const experienceRes = await fetch(`${BASE_URL}/experience`);
     console.log(`Probe GET /experience -> HTTP ${experienceRes.status}`);
@@ -270,10 +279,10 @@ async function main() {
     console.log('Playwright E2E suite passed completely.');
 
     console.log('\n===========================================================');
-    console.log('✔ Phase 4B Exit Gate Verification PASSED Successfully!');
+    console.log('✔ Phase 4C Exit Gate Verification PASSED Successfully!');
     console.log('===========================================================');
   } catch (err) {
-    console.error('\n✖ Phase 4B Exit Gate Verification FAILED:', err);
+    console.error('\n✖ Phase 4C Exit Gate Verification FAILED:', err);
     exitGateError = err;
   } finally {
     // Clean up server process

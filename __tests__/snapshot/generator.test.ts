@@ -101,7 +101,7 @@ describe('Snapshot Pipeline Atomic Promotion & Leak Detection', () => {
     });
 
     it('rejects configured sensitive tokens or secret keys in serialized JSON', () => {
-      const token = 'sb_secret_very_sensitive_key_value';
+      const token = 'mock_secret_sensitive_token_123';
       const json = JSON.stringify({ ...validPayload, text: `leaked: ${token}` });
 
       expect(() => scanPayloadForLeaks(validPayload, json, [token])).toThrow(
